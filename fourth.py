@@ -8,6 +8,7 @@ import os
 import math
 from pysheds.grid import Grid
 import rasterio
+from rasterio.transform import rowcol
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -92,7 +93,7 @@ grid.clip_to(catch)
 branches = grid.extract_river_network(fdir, acc>900)
 
 # coordinate del seed principale nella view clippata
-main_seed_row, main_seed_col = grid.index((x_snap, y_snap))
+main_seed_row, main_seed_col = map(int, rowcol(grid.affine, x_snap, y_snap))
 main_seed_x, main_seed_y = rasterio.transform.xy(
     grid.affine, main_seed_row, main_seed_col, offset="center")
 
@@ -285,7 +286,8 @@ for rr, cc in zip(r_sel, c_sel):
     if snapped_xy is not None:
         xsnap, ysnap = snapped_xy
         try:
-            rsnap, csnap = grid.index((xsnap, ysnap))
+            rsnap_float, csnap_float = rowcol(grid.affine, xsnap, ysnap)
+            rsnap, csnap = int(rsnap_float), int(csnap_float)
         except Exception:
             rsnap, csnap = rr, cc
     else:
