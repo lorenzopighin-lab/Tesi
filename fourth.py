@@ -351,6 +351,8 @@ expected_areas = []
 catchment_points = []
 failed_points = []
 
+catch_mask_view = grid.view(catch)
+
 os.makedirs("catchments_tif", exist_ok=True)
 
 for point in selected_points:
@@ -372,6 +374,7 @@ for point in selected_points:
                 x=xy_coord[0],
                 y=xy_coord[1],
                 fdir=fdir_view,
+                mask=catch_mask_view,
                 xytype='coordinate',
                 recursionlimit=20000,
             )
@@ -498,14 +501,12 @@ def plot_catchment_i(i,
     ax.imshow(np.where(mask_i, 1, np.nan), extent=(xmin, xmax, ymin, ymax),
               origin="upper")
     
-    # 3) rete di drenaggio
+   # 3) rete di drenaggio
     for branch in branches['features']:
             line = np.asarray(branch['geometry']['coordinates'])
             plt.plot(line[:, 0], line[:, 1], alpha=0.5)
- 
 
-    # ) punti seed
-    # seed del sottobacino i-esimo
+    # punti seed
     if main_seed is not None:
         ax.scatter(
             [main_seed[0]],
@@ -516,11 +517,18 @@ def plot_catchment_i(i,
             linewidth=0.8,
             label="seed principale",
         )
-    # seed del bacino principale (se fornito)
-    
-    
-    ax.scatter([x_snap], [y_snap], s=40, marker='^', edgecolor='k', 
-                   linewidth=0.8, label="seed principale")
+
+    if xs is not None and ys is not None and len(xs) > i and len(ys) > i:
+        ax.scatter(
+            [xs[i]],
+            [ys[i]],
+            s=40,
+            marker='o',
+            facecolor='none',
+            edgecolor='red',
+            linewidth=0.8,
+            label="seed sottobacino",
+        )
 
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
@@ -578,6 +586,7 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
+
 
 
 
