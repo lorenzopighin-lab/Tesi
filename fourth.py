@@ -1,20 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep 30 14:28:38 2025
-
-@author: loren
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Sep 22 13:18:38 2025
-
-@author: loren
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Sep 20 15:19:03 2025
+Created on Wed Oct  1 17:33:36 2025
 
 @author: loren
 """
@@ -23,6 +9,7 @@ import math
 from pysheds.grid import Grid
 import rasterio
 import numpy as np
+import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import seaborn as sns
@@ -37,13 +24,12 @@ data_folder = 'C:/Users/loren/Desktop/Tesi_magi/codes/data'
 grid = Grid.from_raster(os.path.join(data_folder,'DEMfel.tif'), data_name='grid data')
 dem = grid.read_raster(os.path.join(data_folder,'DEMfel.tif'), data_name='dem')
 
-
-inflated_dem = grid.resolve_flats(dem)
+flooded_dem = grid.fill_depressions(dem)
+inflated_dem = grid.resolve_flats(flooded_dem)
 fdir = grid.flowdir(inflated_dem)
 
 
-         #N-3  NE-2 E-1  SE-8  S-7  SW-6   W-5  NW-4
-dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
+
 
 # Compute accumulation
 acc = grid.accumulation(fdir)
@@ -82,7 +68,7 @@ print("Pixel nel catchment:", n_pixels)
 fig, ax = plt.subplots(figsize=(8, 6))
 fig.patch.set_alpha(0)
 plt.grid('on', zorder=3)
-im = ax.imshow(dem, extent=grid.extent, zorder=2, cmap='terrain')
+im = ax.imshow(inflated_dem, extent=grid.extent, zorder=2, cmap='terrain')
 ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
            linewidth=1.8, zorder=4, label='Punto')
 plt.colorbar(im, ax=ax, label='Elevation')
@@ -118,7 +104,7 @@ for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
     
-_ = plt.title('Channel network (>5000 accumulation)', size=14)
+_ = plt.title('Channel network (>900 accumulation)', size=14)
 
 #%% Selecting pixels
 
@@ -131,11 +117,14 @@ branches_raster = rasterio.features.rasterize(shapes=shapes, out_shape=shape_vie
                                               all_touched=False, dtype="uint8",)
 #aim for pixels on the raster
 binary = (branches_raster == 1).astype(np.uint8)
+# --- identificazione delle confluenze ---
+# Calcolo del numero di pixel della rete adiacenti (8-neighborhood)
 K = np.ones((3, 3), dtype=np.uint8)
 count_3x3 = convolve2d(binary, K, mode='same', boundary='fill', fillvalue=0)
 neighbor_count = count_3x3 - binary
-pixels = (binary == 1) & (neighbor_count >= 4)
-pixels_raster = pixels.astype(np.uint8)
+# Un nodo di confluenza ha grado >= 3 nella rete; sfruttiamo neighbor_count per identificarli
+confluences_mask = (binary == 1) & (neighbor_count >= 3)
+pixels_raster = confluences_mask.astype(np.uint8)
 
 #%%%CHAT
 
@@ -152,41 +141,152 @@ thr_cells = math.ceil((thr_km2 * 1e6) / cell_area_m2)
 
 mask_acc = acc_view >= thr_cells
 
-# --- 2) Candidati iniziali: pixel-canale con >=3 vicini + soglia di accumulation ---
-candidates = (pixels_raster.astype(bool)) & mask_acc
+def build_stream_graph(stream_mask, pixel_dx, pixel_dy):
+    """Costruisce un grafo non orientato dei pixel appartenenti alla rete di drenaggio."""
+    offsets = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1),
+    ]
 
-# --- 3) Selezione "non adiacente" (8-vicini), privilegiando acc più alto ---
-rows, cols = np.where(candidates)
-if rows.size == 0:
-    selected_mask = np.zeros_like(candidates, dtype=bool)
-else:
-    # ordina i candidati per accumulation decrescente
-    acc_vals = acc_view[rows, cols]
-    order = np.argsort(acc_vals)[::-1]          # indici ordinati per valore decrescente
-    rows, cols = rows[order], cols[order]
+    graph = nx.Graph()
+    rows, cols = np.where(stream_mask)
+    nodes = set(zip(rows, cols))
+    graph.add_nodes_from(nodes)
 
-    selected_mask = np.zeros_like(candidates, dtype=bool)
-    blocked = np.zeros_like(candidates, dtype=bool)   # celle vietate (selezionati + adiacenti)
+    for r, c in nodes:
+        for dr, dc in offsets:
+            nr, nc = r + dr, c + dc
+            if (nr, nc) not in nodes:
+                continue
+            # distanza euclidea in metri fra pixel adiacenti
+            dist = math.hypot(dc * pixel_dx, dr * pixel_dy)
+            graph.add_edge((r, c), (nr, nc), weight=dist)
 
-    for r, c in zip(rows, cols):
-        if blocked[r, c]:
-            continue
-        # seleziona (r,c)
-        selected_mask[r, c] = True
-        # "blocca" la sua 8-neighborhood (3x3) per evitare adiacenti
-        r0 = max(0, r-1); r1 = min(H, r+2)
-        c0 = max(0, c-1); c1 = min(W, c+2)
-        blocked[r0:r1, c0:c1] = True
+    return graph
+
+
+def greedy_stream_sampling(graph, candidates, acc_array, min_distance):
+    """Seleziona nodi sul grafo mantenendo una distanza minima lungo la rete."""
+    if not candidates:
+        return []
+
+    # ordina per accumulation decrescente
+    candidates_sorted = sorted(candidates,
+                               key=lambda rc: acc_array[rc],
+                               reverse=True)
+
+    selected = []
+    for node in candidates_sorted:
+        keep = True
+        for chosen in selected:
+            try:
+                dist = nx.shortest_path_length(graph, node, chosen, weight='weight')
+            except nx.NetworkXNoPath:
+                continue
+            if dist < min_distance:
+                keep = False
+                break
+        if keep:
+            selected.append(node)
+    return selected
+
+
+# --- 2) Candidati iniziali: confluenze con soglia di accumulation ---
+candidates_mask = confluences_mask & mask_acc
+
+# Parametro di distanza minima lungo la rete (metri)
+pixel_dx = abs(grid.affine.a)
+pixel_dy = abs(grid.affine.e)
+min_stream_distance_m = 500  # personalizzabile
+
+stream_graph = build_stream_graph(binary.astype(bool), pixel_dx, pixel_dy)
+candidate_nodes = list(zip(*np.where(candidates_mask)))
+
+selected_nodes = greedy_stream_sampling(stream_graph, candidate_nodes, acc_view,
+                                        min_stream_distance_m)
+
+selected_mask = np.zeros_like(candidates_mask, dtype=bool)
+for r, c in selected_nodes:
+    selected_mask[r, c] = True
 
 # --- 4) Risultati ---
-# selected_mask: booleano con i pixel scelti (no adiacenze, sopra soglia)
+# selected_mask: booleano con i pixel scelti, distanziati lungo la rete
 pixels_selected = selected_mask.astype(np.uint8)
 
-# (opzionale) coordinate (x,y) dei pixel scelti
+# coordinate (x,y) dei pixel scelti
 
 r_sel, c_sel = np.where(selected_mask)
 xsel, ysel = rasterio.transform.xy(grid.affine, r_sel, c_sel, offset='center')
 
+# --- Snap dei pixel selezionati alla cella di accumulo più vicina sulla rete ---
+channel_mask = branches_raster.astype(bool)
+snapped_indices = []   # (row, col) snappati
+snapped_coords = []    # (x, y) snappati
+
+def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
+    """Trova l'indice (row, col) della cella con accumulo massimo vicina."""
+    h, w = acc_arr.shape
+    if mask is not None:
+        mask = mask.astype(bool)
+    r = int(r)
+    c = int(c)
+    best_rc = (r, c)
+    if 0 <= r < h and 0 <= c < w:
+        best_val = acc_arr[r, c]
+    else:
+        best_val = -np.inf
+    for radius in range(max_radius + 1):
+        r0 = max(0, r - radius)
+        r1 = min(h, r + radius + 1)
+        c0 = max(0, c - radius)
+        c1 = min(w, c + radius + 1)
+        window = acc_arr[r0:r1, c0:c1]
+        if window.size == 0:
+            continue
+        if mask is not None:
+            mask_window = mask[r0:r1, c0:c1]
+            if not mask_window.any():
+                continue
+            masked_vals = np.where(mask_window, window, -np.inf)
+            idx = np.argmax(masked_vals)
+            if np.isneginf(masked_vals.flat[idx]):
+                continue
+        else:
+            idx = np.argmax(window)
+        wr, wc = np.unravel_index(idx, window.shape)
+        candidate_val = window[wr, wc]
+        if candidate_val > best_val:
+            best_val = candidate_val
+            best_rc = (r0 + wr, c0 + wc)
+        if mask is not None and mask_window[wr, wc]:
+            return best_rc
+    return best_rc
+
+for rr, cc, x, y in zip(r_sel, c_sel, xsel, ysel):
+    snapped_xy = None
+    if channel_mask.any():
+        try:
+            snapped_xy = grid.snap_to_mask(channel_mask, (x, y))
+        except Exception:
+            snapped_xy = None
+    if snapped_xy is not None:
+        xsnap, ysnap = snapped_xy
+        try:
+            rsnap, csnap = grid.index((xsnap, ysnap))
+        except Exception:
+            rsnap, csnap = rr, cc
+    else:
+        rsnap, csnap = rr, cc
+        xsnap, ysnap = x, y
+
+    # in caso di snap fuori canale, cerca localmente il massimo di accumulo
+    if not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]:
+        rsnap, csnap = _local_max_index(rr, cc, acc_view, mask=channel_mask)
+        xsnap, ysnap = rasterio.transform.xy(grid.affine, rsnap, csnap, offset='center')
+
+    snapped_indices.append((int(rsnap), int(csnap)))
+    snapped_coords.append((float(xsnap), float(ysnap)))
 #%%%plot pixel sulla rete
 sns.set_palette('husl')
 fig, ax = plt.subplots(figsize=(8.5,6.5))
@@ -220,41 +320,85 @@ if check_ones == confluences:
     print("Pixel Trovati")
 else: print("Discrepanze pixel rete")
 #%% Area contribuente dei pixel estratti (catchments)
-rows, cols = np.where(pixels)                         # indici dei pixel selezionati
-xs, ys = rasterio.transform.xy(transform_view, rows, cols, offset='center') 
+rows, cols = np.where(selected_mask)                         # indici dei pixel selezionati
+xs, ys = rasterio.transform.xy(transform_view, rows, cols, offset='center')
 coords = np.column_stack([xs, ys])
 
 
 
 fdir_view = grid.view(fdir)         # shape della view, es. (82, 52)        # transform corrente (della view)
-              
-xmin, ymin, xmax, ymax = grid.bbox 
 
-xs = np.asarray(xsel); ys = np.asarray(ysel)
-
+xmin, ymin, xmax, ymax = grid.bbox
 
 catchments = []   # lista di maschere boolean (una per punto)
 areas = []        # area m² (o unità del tuo CRS) di ogni catchment
 labels = np.zeros_like(fdir_view, dtype=np.int32)  # raster etichettato (facoltativo)
-
+expected_areas = []
+valid_xs = []
+valid_ys = []
 
 os.makedirs("catchments_tif", exist_ok=True)
 
-for i, (x, y) in enumerate(zip(xs, ys), start=1):
+for (rsnap, csnap), (x_snap, y_snap) in zip(snapped_indices, snapped_coords):
+    if not (0 <= rsnap < H and 0 <= csnap < W):
+        continue
+    expected_area = acc_view[rsnap, csnap] * cell_area_m2
+    if expected_area <= 0:
+        continue
+
     try:
-        mask = grid.catchment(x=x, y=y, fdir=fdir_view, dirmap=dirmap, 
+        mask = grid.catchment(x=x_snap, y=y_snap, fdir=fdir_view,
                               xytype='coordinate')
     except Exception:
-        # punto fuori canale o su NoData: salta
-        continue
+        mask = None
     if mask is None or not np.any(mask):
         continue
 
-    catchments.append(mask)                   # salva la maschera del sottobacino
-    areas.append(mask.sum() * cell_area_m2)      # area contribuente del punto
-    labels[mask & (labels == 0)] = i          # (opzionale) raster etichettato
-    
+    actual_area = mask.sum() * cell_area_m2
+    deviation = abs(actual_area - expected_area) / expected_area if expected_area else np.inf
+
+    if deviation > 0.2:
+        # prova un nuovo snap basato sul massimo di accumulo locale
+        alt_r, alt_c = _local_max_index(rsnap, csnap, acc_view, mask=channel_mask, max_radius=10)
+        if (alt_r, alt_c) != (rsnap, csnap):
+            x_snap, y_snap = rasterio.transform.xy(grid.affine, alt_r, alt_c, offset='center')
+            expected_area = acc_view[alt_r, alt_c] * cell_area_m2
+            if expected_area <= 0:
+                continue
+            try:
+                mask = grid.catchment(x=x_snap, y=y_snap, fdir=fdir_view,
+                                      xytype='coordinate')
+            except Exception:
+                mask = None
+            if mask is None or not np.any(mask):
+                continue
+            actual_area = mask.sum() * cell_area_m2
+            deviation = abs(actual_area - expected_area) / expected_area if expected_area else np.inf
+            rsnap, csnap = alt_r, alt_c
+
+    if deviation > 0.2:
+        continue
+
+    catchments.append(mask)
+    actual_area = mask.sum() * cell_area_m2
+    areas.append(actual_area)
+    expected_areas.append(expected_area)
+    label_id = len(catchments)
+    labels[mask & (labels == 0)] = label_id
+    valid_xs.append(x_snap)
+    valid_ys.append(y_snap)
+
+xs = np.asarray(valid_xs)
+ys = np.asarray(valid_ys)
+
 print(f"Catchment estratti: {len(catchments)}")
+if expected_areas:
+    areas_arr = np.asarray(areas)
+    expected_arr = np.asarray(expected_areas)
+    deviation_pct = np.where(expected_arr > 0,
+                             np.abs(areas_arr - expected_arr) / expected_arr * 100,
+                             np.nan)
+    print(f"Deviazione media area rispetto ad accumulation: {np.nanmean(deviation_pct):.2f}%")
 #%%% Plot Aree contribuenti
 
 def plot_catchment_i(i,
@@ -311,7 +455,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 54 # indice del sottobacino (0-based)
+i = 0# indice del sottobacino (0-based)
 
 
 plot_catchment_i(i, catchments=catchments, xs=xs, ys=ys, catch=grid.view(catch),
