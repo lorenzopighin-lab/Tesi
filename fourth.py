@@ -91,6 +91,11 @@ plt.show()
 grid.clip_to(catch)
 branches = grid.extract_river_network(fdir, acc>900)
 
+# coordinate del seed principale nella view clippata
+main_seed_row, main_seed_col = grid.index((x_snap, y_snap))
+main_seed_x, main_seed_y = rasterio.transform.xy(
+    grid.affine, main_seed_row, main_seed_col, offset="center")
+
 #%%%plot branches 
 
 sns.set_palette('husl')
@@ -203,8 +208,9 @@ min_stream_distance_m = 500  # personalizzabile
 stream_graph = build_stream_graph(binary.astype(bool), pixel_dx, pixel_dy)
 candidate_nodes = list(zip(*np.where(candidates_mask)))
 
-selected_nodes = greedy_stream_sampling(stream_graph, candidate_nodes, acc_view,
-                                        min_stream_distance_m)
+selected_nodes = greedy_stream_sampling(
+    stream_graph, candidate_nodes, acc_view, min_stream_distance_m
+)
 
 selected_mask = np.zeros_like(candidates_mask, dtype=bool)
 for r, c in selected_nodes:
@@ -217,12 +223,11 @@ pixels_selected = selected_mask.astype(np.uint8)
 # coordinate (x,y) dei pixel scelti
 
 r_sel, c_sel = np.where(selected_mask)
-xsel, ysel = rasterio.transform.xy(grid.affine, r_sel, c_sel, offset='center')
 
 # --- Snap dei pixel selezionati alla cella di accumulo più vicina sulla rete ---
 channel_mask = branches_raster.astype(bool)
-snapped_indices = []   # (row, col) snappati
-snapped_coords = []    # (x, y) snappati
+selected_points = []
+
 
 def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
     """Trova l'indice (row, col) della cella con accumulo massimo vicina."""
@@ -263,7 +268,14 @@ def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
             return best_rc
     return best_rc
 
-for rr, cc, x, y in zip(r_sel, c_sel, xsel, ysel):
+for rr, cc in zip(r_sel, c_sel):
+    point = {
+        "row": int(rr),
+        "col": int(cc),
+    }
+    x, y = rasterio.transform.xy(grid.affine, rr, cc, offset="center")
+    point["initial_coord"] = (float(x), float(y))
+
     snapped_xy = None
     if channel_mask.any():
         try:
@@ -283,10 +295,13 @@ for rr, cc, x, y in zip(r_sel, c_sel, xsel, ysel):
     # in caso di snap fuori canale, cerca localmente il massimo di accumulo
     if not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]:
         rsnap, csnap = _local_max_index(rr, cc, acc_view, mask=channel_mask)
-        xsnap, ysnap = rasterio.transform.xy(grid.affine, rsnap, csnap, offset='center')
+        xsnap, ysnap = rasterio.transform.xy(
+            grid.affine, rsnap, csnap, offset="center"
+        )
 
-    snapped_indices.append((int(rsnap), int(csnap)))
-    snapped_coords.append((float(xsnap), float(ysnap)))
+    point["snapped_index"] = (int(rsnap), int(csnap))
+    point["snapped_coord"] = (float(xsnap), float(ysnap))
+    selected_points.append(point)
 #%%%plot pixel sulla rete
 sns.set_palette('husl')
 fig, ax = plt.subplots(figsize=(8.5,6.5))
@@ -300,7 +315,9 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
 zorder=2
 
-sc = ax.scatter(xsel, ysel,
+sc = ax.scatter(
+                    [pt["snapped_coord"][0] for pt in selected_points],
+                    [pt["snapped_coord"][1] for pt in selected_points],
                     s=18, c='red',
                     edgecolors='k', linewidths=0.3,
                     zorder=5, label='Pixel selezionati') 
@@ -320,11 +337,6 @@ if check_ones == confluences:
     print("Pixel Trovati")
 else: print("Discrepanze pixel rete")
 #%% Area contribuente dei pixel estratti (catchments)
-rows, cols = np.where(selected_mask)                         # indici dei pixel selezionati
-xs, ys = rasterio.transform.xy(transform_view, rows, cols, offset='center')
-coords = np.column_stack([xs, ys])
-
-
 
 fdir_view = grid.view(fdir)         # shape della view, es. (82, 52)        # transform corrente (della view)
 
@@ -334,62 +346,109 @@ catchments = []   # lista di maschere boolean (una per punto)
 areas = []        # area m² (o unità del tuo CRS) di ogni catchment
 labels = np.zeros_like(fdir_view, dtype=np.int32)  # raster etichettato (facoltativo)
 expected_areas = []
-valid_xs = []
-valid_ys = []
+catchment_points = []
+failed_points = []
 
 os.makedirs("catchments_tif", exist_ok=True)
 
-for (rsnap, csnap), (x_snap, y_snap) in zip(snapped_indices, snapped_coords):
+for point in selected_points:
+    rsnap, csnap = point["snapped_index"]
+    x_snap, y_snap = point["snapped_coord"]
+
     if not (0 <= rsnap < H and 0 <= csnap < W):
+        failed_points.append({"point": point, "reason": "indice fuori dai limiti"})
         continue
+
     expected_area = acc_view[rsnap, csnap] * cell_area_m2
     if expected_area <= 0:
+        failed_points.append({"point": point, "reason": "accumulation nulla"})
         continue
 
-    try:
-        mask = grid.catchment(x=x_snap, y=y_snap, fdir=fdir_view,
-                              xytype='coordinate')
-    except Exception:
-        mask = None
-    if mask is None or not np.any(mask):
+    def _compute_catchment(xy_coord, idx):
+        try:
+            mask_local = grid.catchment(
+                x=xy_coord[0],
+                y=xy_coord[1],
+                fdir=fdir_view,
+                xytype='coordinate',
+                recursionlimit=20000,
+            )
+        except Exception:
+            mask_local = None
+        if mask_local is None or not np.any(mask_local):
+            return None
+        return mask_local
+
+    mask = _compute_catchment((x_snap, y_snap), (rsnap, csnap))
+
+    # prova un nuovo snap basato sul massimo di accumulo locale se necessario
+    if mask is None:
+        alt_r, alt_c = _local_max_index(
+            rsnap, csnap, acc_view, mask=channel_mask, max_radius=10
+        )
+        if (alt_r, alt_c) != (rsnap, csnap):
+            rsnap, csnap = int(alt_r), int(alt_c)
+            x_snap, y_snap = rasterio.transform.xy(
+                grid.affine, rsnap, csnap, offset='center'
+            )
+            expected_area = acc_view[rsnap, csnap] * cell_area_m2
+            if expected_area > 0:
+                mask = _compute_catchment((x_snap, y_snap), (rsnap, csnap))
+
+    if mask is None:
+        x_orig, y_orig = point.get("initial_coord", (None, None))
+        r_orig, c_orig = point["row"], point["col"]
+        if (
+            x_orig is not None
+            and y_orig is not None
+            and 0 <= r_orig < H
+            and 0 <= c_orig < W
+        ):
+            expected_area_orig = acc_view[r_orig, c_orig] * cell_area_m2
+            if expected_area_orig > 0:
+                candidate_mask = _compute_catchment((x_orig, y_orig), (r_orig, c_orig))
+                if candidate_mask is not None:
+                    mask = candidate_mask
+                    rsnap, csnap = int(r_orig), int(c_orig)
+                    x_snap, y_snap = float(x_orig), float(y_orig)
+                    expected_area = expected_area_orig
+
+    if mask is None:
+        failed_points.append({"point": point, "reason": "catchment non trovato"})
         continue
 
     actual_area = mask.sum() * cell_area_m2
-    deviation = abs(actual_area - expected_area) / expected_area if expected_area else np.inf
-
+    deviation = (
+        abs(actual_area - expected_area) / expected_area if expected_area else np.inf
+    )
     if deviation > 0.2:
-        # prova un nuovo snap basato sul massimo di accumulo locale
-        alt_r, alt_c = _local_max_index(rsnap, csnap, acc_view, mask=channel_mask, max_radius=10)
-        if (alt_r, alt_c) != (rsnap, csnap):
-            x_snap, y_snap = rasterio.transform.xy(grid.affine, alt_r, alt_c, offset='center')
-            expected_area = acc_view[alt_r, alt_c] * cell_area_m2
-            if expected_area <= 0:
-                continue
-            try:
-                mask = grid.catchment(x=x_snap, y=y_snap, fdir=fdir_view,
-                                      xytype='coordinate')
-            except Exception:
-                mask = None
-            if mask is None or not np.any(mask):
-                continue
-            actual_area = mask.sum() * cell_area_m2
-            deviation = abs(actual_area - expected_area) / expected_area if expected_area else np.inf
-            rsnap, csnap = alt_r, alt_c
-
-    if deviation > 0.2:
-        continue
+        print(
+            f"Avviso: deviazione area {deviation*100:.1f}% per il seed in {x_snap:.2f}, {y_snap:.2f}"
+        )
 
     catchments.append(mask)
-    actual_area = mask.sum() * cell_area_m2
     areas.append(actual_area)
     expected_areas.append(expected_area)
+
+    updated_point = {
+        **point,
+        "snapped_index": (rsnap, csnap),
+        "snapped_coord": (float(x_snap), float(y_snap)),
+        "deviation": deviation,
+    }
+    catchment_points.append(updated_point)
+
     label_id = len(catchments)
     labels[mask & (labels == 0)] = label_id
-    valid_xs.append(x_snap)
-    valid_ys.append(y_snap)
 
-xs = np.asarray(valid_xs)
-ys = np.asarray(valid_ys)
+if failed_points:
+    print(f"Catchment non estratti: {len(failed_points)}")
+    for item in failed_points:
+        coord = item["point"].get("initial_coord", (np.nan, np.nan))
+        print(f" - seed {coord} -> {item['reason']}")
+
+xs = np.asarray([pt["snapped_coord"][0] for pt in catchment_points])
+ys = np.asarray([pt["snapped_coord"][1] for pt in catchment_points])
 
 print(f"Catchment estratti: {len(catchments)}")
 if expected_areas:
@@ -412,7 +471,12 @@ def plot_catchment_i(i,
     """
     Visualizza il sottobacino i-esimo sovrapposto al bacino principale, con i relativi punti seed.
     """
-    mask_i = catchments[i]          # boolean array (H, W)
+    if not catchments:
+        raise ValueError("Nessun catchment disponibile per il plotting")
+    if i < 0 or i >= len(catchments):
+        raise IndexError(f"Indice {i} fuori range per {len(catchments)} catchments disponibili")
+
+    mask_i = catchments[i]          # boolean array (H, W)         # boolean array (H, W)
     h, w = mask_i.shape
     xmin, ymin, xmax, ymax = rasterio.transform.array_bounds(h, w, 
                                                              transform_view)
@@ -440,8 +504,16 @@ def plot_catchment_i(i,
 
     # ) punti seed
     # seed del sottobacino i-esimo
-    ax.scatter([xs[i]], [ys[i]], s=30, marker='o', edgecolor='k', 
-               linewidth=0.8, label=f"seed #{i}")
+    if main_seed is not None:
+        ax.scatter(
+            [main_seed[0]],
+            [main_seed[1]],
+            s=40,
+            marker='^',
+            edgecolor='k',
+            linewidth=0.8,
+            label="seed principale",
+        )
     # seed del bacino principale (se fornito)
     
     
@@ -455,11 +527,20 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 0# indice del sottobacino (0-based)
+i = 0  # indice del sottobacino (0-based)
 
-
-plot_catchment_i(i, catchments=catchments, xs=xs, ys=ys, catch=grid.view(catch),
-                 transform_view=grid.affine)
+if catchments:
+    plot_catchment_i(
+        i,
+        catchments=catchments,
+        xs=xs,
+        ys=ys,
+        catch=grid.view(catch),
+        transform_view=grid.affine,
+        main_seed=(main_seed_x, main_seed_y),
+    )
+else:
+    print("Nessun catchment valido da plottare.")
 
 #%% Stats piogge
 # --- Parametri simulazione pioggia ---
@@ -495,5 +576,6 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
+
 
 
