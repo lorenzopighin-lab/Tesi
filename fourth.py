@@ -29,9 +29,6 @@ flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem)
 fdir = grid.flowdir(inflated_dem)
 
-
-
-
 # Compute accumulation
 acc = grid.accumulation(fdir)
 
@@ -145,7 +142,7 @@ cell_area_m2 = abs(grid.affine.a * grid.affine.e)
 thr_km2 = 0.5
 thr_cells = math.ceil((thr_km2 * 1e6) / cell_area_m2)
 
-mask_acc = acc_view >= thr_cells
+mask_acc = acc_view >= thr_cells    #si crea la mask con i pixel con sufficiente acc
 
 def build_stream_graph(stream_mask, pixel_dx, pixel_dy):
     """Costruisce un grafo non orientato dei pixel appartenenti alla rete di drenaggio."""
@@ -206,8 +203,8 @@ pixel_dx = abs(grid.affine.a)
 pixel_dy = abs(grid.affine.e)
 min_stream_distance_m = 500  # personalizzabile
 
-stream_graph = build_stream_graph(binary.astype(bool), pixel_dx, pixel_dy)
-candidate_nodes = list(zip(*np.where(candidates_mask)))
+stream_graph = build_stream_graph(binary.astype(bool), pixel_dx, pixel_dy) #Usa la function e fa un grafo dei pixel canale
+candidate_nodes = list(zip(*np.where(candidates_mask))) #lista dei pixel candidati
 
 selected_nodes = greedy_stream_sampling(
     stream_graph, candidate_nodes, acc_view, min_stream_distance_m
@@ -366,13 +363,13 @@ for point in selected_points:
         failed_points.append({"point": point, "reason": "accumulation nulla"})
         continue
 
-    def _compute_catchment(xy_coord, idx):
+    def _compute_catchment(row, col):
         try:
             mask_local = grid.catchment(
-                x=xy_coord[0],
-                y=xy_coord[1],
+                x=int(col),
+                y=int(row),
                 fdir=fdir_view,
-                xytype='coordinate',
+                xytype='index',
                 recursionlimit=20000,
             )
         except Exception:
@@ -381,21 +378,21 @@ for point in selected_points:
             return None
         return mask_local
 
-    mask = _compute_catchment((x_snap, y_snap), (rsnap, csnap))
+    mask = _compute_catchment(rsnap, csnap)
 
     # prova un nuovo snap basato sul massimo di accumulo locale se necessario
     if mask is None:
         alt_r, alt_c = _local_max_index(
-            rsnap, csnap, acc_view, mask=channel_mask, max_radius=10
-        )
+            rsnap, csnap, acc_view, mask=channel_mask, max_radius=10)
+        
         if (alt_r, alt_c) != (rsnap, csnap):
             rsnap, csnap = int(alt_r), int(alt_c)
             x_snap, y_snap = rasterio.transform.xy(
-                grid.affine, rsnap, csnap, offset='center'
-            )
+                grid.affine, rsnap, csnap, offset='center')
+            
             expected_area = acc_view[rsnap, csnap] * cell_area_m2
             if expected_area > 0:
-                mask = _compute_catchment((x_snap, y_snap), (rsnap, csnap))
+                mask = _compute_catchment(rsnap, csnap)
 
     if mask is None:
         x_orig, y_orig = point.get("initial_coord", (None, None))
@@ -408,7 +405,7 @@ for point in selected_points:
         ):
             expected_area_orig = acc_view[r_orig, c_orig] * cell_area_m2
             if expected_area_orig > 0:
-                candidate_mask = _compute_catchment((x_orig, y_orig), (r_orig, c_orig))
+                candidate_mask = _compute_catchment(r_orig, c_orig)
                 if candidate_mask is not None:
                     mask = candidate_mask
                     rsnap, csnap = int(r_orig), int(c_orig)
@@ -516,11 +513,29 @@ def plot_catchment_i(i,
             linewidth=0.8,
             label="seed principale",
         )
-    # seed del bacino principale (se fornito)
-    
-    
-    ax.scatter([x_snap], [y_snap], s=40, marker='^', edgecolor='k', 
-                   linewidth=0.8, label="seed principale")
+
+    # punti seed dei sottobacini
+    ax.scatter(
+        xs,
+        ys,
+        s=20,
+        c='red',
+        edgecolor='k',
+        linewidths=0.3,
+        label='seed sottobacini',
+    )
+
+    # evidenzia il seed del sottobacino corrente
+    ax.scatter(
+        [xs[i]],
+        [ys[i]],
+        s=45,
+        marker='o',
+        facecolor='yellow',
+        edgecolor='k',
+        linewidth=0.6,
+        label=f'seed catchment #{i}',
+    )
 
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
@@ -578,6 +593,5 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
-
 
 
