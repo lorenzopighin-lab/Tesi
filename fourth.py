@@ -155,6 +155,54 @@ d8_from_offset = {
     (1, 1): 2,
 }
 
+def _walk_upstream_to_threshold(start_rc, branch_id, max_steps=20):
+    """Move upstream along the same branch until the accumulation threshold is met."""
+    if start_rc is None:
+        return None
+
+    r, c = start_rc
+    if not (0 <= r < H and 0 <= c < W):
+        return None
+
+    current = (int(r), int(c))
+    if mask_acc[current]:
+        return current
+
+    for _ in range(max_steps):
+        cr, cc = current
+        best_candidate = None
+        best_acc = -np.inf
+
+        for dr, dc in neighbor_offsets:
+            nr, nc = cr + dr, cc + dc
+            if not (0 <= nr < H and 0 <= nc < W):
+                continue
+            if branches_raster[nr, nc] != branch_id:
+                continue
+
+            delta_row = -dr
+            delta_col = -dc
+            flow_code = d8_from_offset.get((delta_row, delta_col))
+            if flow_code is None:
+                continue
+            if fdir_view[nr, nc] != flow_code:
+                continue
+
+            candidate_acc = acc_view[nr, nc]
+            if candidate_acc > best_acc:
+                best_acc = candidate_acc
+                best_candidate = (int(nr), int(nc))
+
+        if best_candidate is None:
+            break
+
+        current = best_candidate
+        if mask_acc[current]:
+            return current
+
+    return current if mask_acc[current] else None
+
+
 confluence_indices = []
 upstream_indices = set()
 
@@ -183,11 +231,23 @@ for r in range(H):
 
             upstream_by_branch.setdefault(neighbor_branch, []).append((nr, nc))
 
-        if len(upstream_by_branch) >= 2:
+        if len(upstream_by_branch) < 2:
+            continue
+
+        if not mask_acc[r, c]:
+            continue
+
+        valid_upstream = []
+        for bid, coords in upstream_by_branch.items():
+            best_rc = max(coords, key=lambda rc: acc_view[rc])
+            walked_rc = _walk_upstream_to_threshold(best_rc, bid)
+            if walked_rc is not None:
+                valid_upstream.append(walked_rc)
+
+        # Keep confluence only if at least two upstream branches reach the threshold
+        if len(valid_upstream) >= 2:
             confluence_indices.append((r, c))
-            for bid, coords in upstream_by_branch.items():
-                best_rc = max(coords, key=lambda rc: acc_view[rc])
-                upstream_indices.add(best_rc)
+            upstream_indices.update(valid_upstream)
 
 # --- selezione pixel intermedi per ciascun ramo ---
 branch_ids = np.unique(branches_raster)
