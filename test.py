@@ -86,8 +86,9 @@ plt.tight_layout()
 plt.show()
 #%%branches
 grid.clip_to(catch)
+catch_view = grid.view(catch).astype(bool)
 branches = grid.extract_river_network(fdir, acc>1000)
-
+                                      
 # coordinate del seed principale nella view clippata
 main_seed_row, main_seed_col = map(int, rowcol(grid.affine, x_snap, y_snap))
 main_seed_x, main_seed_y = rasterio.transform.xy(
@@ -433,18 +434,50 @@ for point in selected_points:
         continue
 
     def _compute_catchment(row, col):
-        try:
-            mask_local = grid.catchment(
-                x=int(col),
-                y=int(row),
-                fdir=fdir_view,
-                xytype='index',
-                recursionlimit=20000,
-            )
-        except Exception:
-            mask_local = None
-        if mask_local is None or not np.any(mask_local):
+        row = int(row)
+        col = int(col)
+        if not (0 <= row < H and 0 <= col < W):
             return None
+        if catch_view is not None and not catch_view[row, col]:
+            return None
+
+        mask_local = np.zeros_like(fdir_view, dtype=bool)
+        queue = [(row, col)]
+        mask_local[row, col] = True
+        head = 0
+
+        while head < len(queue):
+            cr, cc = queue[head]
+            head += 1
+
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+
+                    nr, nc = cr + dr, cc + dc
+                    if not (0 <= nr < H and 0 <= nc < W):
+                        continue
+                    if mask_local[nr, nc]:
+                        continue
+                    if catch_view is not None and not catch_view[nr, nc]:
+                        continue
+
+                    delta_row = cr - nr
+                    delta_col = cc - nc
+                    flow_code = d8_from_offset.get((delta_row, delta_col))
+                    if flow_code is None:
+                        continue
+
+                    if fdir_view[nr, nc] == 0 or fdir_view[nr, nc] != flow_code:
+                        continue
+
+                    mask_local[nr, nc] = True
+                    queue.append((nr, nc))
+
+        if not mask_local.any():
+            return None
+
         return mask_local
 
     mask = _compute_catchment(rsnap, csnap)
@@ -613,7 +646,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 9  # indice del sottobacino (0-based)
+i = 78  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
