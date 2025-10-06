@@ -1,0 +1,94 @@
+    def _compute_catchment(row, col):
+        try:
+            mask_local = grid.catchment(
+                x=int(col),
+                y=int(row),
+                fdir=fdir_view,
+                xytype='index',
+                recursionlimit=20000,
+            )
+        except Exception:
+            mask_local = None
+        if mask_local is None or not np.any(mask_local):
+            return None
+        return mask_local
+
+    mask = _compute_catchment(rsnap, csnap)
+
+    # prova un nuovo snap basato sul massimo di accumulo locale se necessario
+    if mask is None:
+        alt_r, alt_c = _local_max_index(
+            rsnap, csnap, acc_view, mask=channel_mask, max_radius=10)
+        
+        if (alt_r, alt_c) != (rsnap, csnap):
+            rsnap, csnap = int(alt_r), int(alt_c)
+            x_snap, y_snap = rasterio.transform.xy(
+                grid.affine, rsnap, csnap, offset='center')
+            
+            expected_area = acc_view[rsnap, csnap] * cell_area_m2
+            if expected_area > 0:
+                mask = _compute_catchment(rsnap, csnap)
+
+    if mask is None:
+        x_orig, y_orig = point.get("initial_coord", (None, None))
+        r_orig, c_orig = point["row"], point["col"]
+        if (
+            x_orig is not None
+            and y_orig is not None
+            and 0 <= r_orig < H
+            and 0 <= c_orig < W
+        ):
+            expected_area_orig = acc_view[r_orig, c_orig] * cell_area_m2
+            if expected_area_orig > 0:
+                candidate_mask = _compute_catchment(r_orig, c_orig)
+                if candidate_mask is not None:
+                    mask = candidate_mask
+                    rsnap, csnap = int(r_orig), int(c_orig)
+                    x_snap, y_snap = float(x_orig), float(y_orig)
+                    expected_area = expected_area_orig
+
+    if mask is None:
+        failed_points.append({"point": point, "reason": "catchment non trovato"})
+        continue
+
+    actual_area = mask.sum() * cell_area_m2
+    deviation = (
+        abs(actual_area - expected_area) / expected_area if expected_area else np.inf
+    )
+    if deviation > 0.2:
+        print(
+            f"Avviso: deviazione area {deviation*100:.1f}% per il seed in {x_snap:.2f}, {y_snap:.2f}"
+        )
+
+    catchments.append(mask)
+    areas.append(actual_area)
+    expected_areas.append(expected_area)
+
+    updated_point = {
+        **point,
+        "snapped_index": (rsnap, csnap),
+        "snapped_coord": (float(x_snap), float(y_snap)),
+        "deviation": deviation,
+    }
+    catchment_points.append(updated_point)
+
+    label_id = len(catchments)
+    labels[mask & (labels == 0)] = label_id
+
+if failed_points:
+    print(f"Catchment non estratti: {len(failed_points)}")
+    for item in failed_points:
+        coord = item["point"].get("initial_coord", (np.nan, np.nan))
+        print(f" - seed {coord} -> {item['reason']}")
+
+xs = np.asarray([pt["snapped_coord"][0] for pt in catchment_points])
+ys = np.asarray([pt["snapped_coord"][1] for pt in catchment_points])
+
+print(f"Catchment estratti: {len(catchments)}")
+if expected_areas:
+    areas_arr = np.asarray(areas)
+    expected_arr = np.asarray(expected_areas)
+    deviation_pct = np.where(expected_arr > 0,
+                             np.abs(areas_arr - expected_arr) / expected_arr * 100,
+                             np.nan)
+    print(f"Deviazione media area rispetto ad accumulation: {np.nanmean(deviation_pct):.2f}%")
