@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Oct  1 17:33:36 2025
+Created on Mon Oct  6 12:28:45 2025
 
 @author: loren
 """
+
 import os
 import math
 from pysheds.grid import Grid
@@ -114,12 +115,20 @@ _ = plt.title('Channel network (>900 accumulation)', size=14)
 transform_view = grid.affine       # affine della view corrente (dopo il clip)
 shape_view = grid.view(fdir).shape 
 
-shapes = ((feat["geometry"], 1) for feat in branches["features"])
-branches_raster = rasterio.features.rasterize(shapes=shapes, out_shape=shape_view, 
-                                              transform=transform_view, fill=0,
-                                              all_touched=False, dtype="uint8",)
+shapes = (
+    (feat["geometry"], idx + 1) for idx, feat in enumerate(branches["features"])
+)
+branches_raster = rasterio.features.rasterize(
+    shapes=shapes,
+    out_shape=shape_view,
+    transform=transform_view,
+    fill=0,
+    all_touched=False,
+    dtype="uint16",
+)
 #aim for pixels on the raster
-binary = (branches_raster == 1).astype(np.uint8)
+binary = (branches_raster > 0).astype(np.uint8)
+
 # --- identificazione delle confluenze ---
 # Calcolo del numero di pixel della rete adiacenti (8-neighborhood)
 K = np.ones((3, 3), dtype=np.uint8)
@@ -213,6 +222,58 @@ selected_nodes = greedy_stream_sampling(
 selected_mask = np.zeros_like(candidates_mask, dtype=bool)
 for r, c in selected_nodes:
     selected_mask[r, c] = True
+
+
+def _is_far_enough(node, chosen_nodes, graph, min_distance):
+    for chosen in chosen_nodes:
+        try:
+            dist = nx.shortest_path_length(graph, node, chosen, weight="weight")
+        except nx.NetworkXNoPath:
+            continue
+        if dist < min_distance:
+            return False
+    return True
+
+
+# Guarantee at least one pixel per branch
+branch_ids = np.unique(branches_raster)
+branch_ids = branch_ids[branch_ids > 0]
+selected_nodes_set = set(selected_nodes)
+
+for branch_id in branch_ids:
+    branch_mask = branches_raster == branch_id
+    if not np.any(branch_mask):
+        continue
+    if np.any(selected_mask & branch_mask):
+        continue
+
+    branch_candidates_idx = np.argwhere(branch_mask & mask_acc)
+    if branch_candidates_idx.size == 0:
+        branch_candidates_idx = np.argwhere(branch_mask)
+    if branch_candidates_idx.size == 0:
+        continue
+
+    # Try to select a node respecting the minimum distance along the network
+    best_node = None
+    for rc in sorted(
+        (tuple(rc) for rc in branch_candidates_idx),
+        key=lambda rc: acc_view[rc],
+        reverse=True,
+    ):
+        if _is_far_enough(rc, selected_nodes_set, stream_graph, min_stream_distance_m):
+            best_node = rc
+            break
+
+    if best_node is None:
+        # fallback: choose the highest accumulation pixel even if it violates the distance
+        best_node = max(
+            (tuple(rc) for rc in branch_candidates_idx),
+            key=lambda rc: acc_view[rc],
+        )
+
+    selected_mask[best_node] = True
+    selected_nodes.append(best_node)
+    selected_nodes_set.add(best_node)
 
 # --- 4) Risultati ---
 # selected_mask: booleano con i pixel scelti, distanziati lungo la rete
@@ -323,12 +384,12 @@ sc = ax.scatter(
 _ = plt.title('Channel network (>5000 accumulation)', size=14)
 
 #%%%controllo pixels
-count_ones = np.sum(branches_raster)
+count_ones = np.sum(branches_raster > 0)
 confluences = pixels_selected.sum()
 print("Pixel canali", count_ones)
 print("Numero confluences:", confluences)
 
-check = pixels_selected * branches_raster
+check = pixels_selected.astype(bool) & (branches_raster > 0)
 check_ones = np.sum(check)
 print("confluences sulla rete", check_ones)
 
