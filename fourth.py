@@ -11,11 +11,9 @@ from pysheds.grid import Grid
 import rasterio
 from rasterio.transform import rowcol
 import numpy as np
-import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import seaborn as sns
-from scipy.signal import convolve2d
 
 #%%Data
 
@@ -88,7 +86,7 @@ plt.tight_layout()
 plt.show()
 #%%branches
 grid.clip_to(catch)
-branches = grid.extract_river_network(fdir, acc>900)
+branches = grid.extract_river_network(fdir, acc>1000)
 
 # coordinate del seed principale nella view clippata
 main_seed_row, main_seed_col = map(int, rowcol(grid.affine, x_snap, y_snap))
@@ -108,7 +106,7 @@ for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
     
-_ = plt.title('Channel network (>900 accumulation)', size=14)
+_ = plt.title('Channel network (>1000 accumulation)', size=14)
 
 #%% Selecting pixels
 
@@ -129,23 +127,10 @@ branches_raster = rasterio.features.rasterize(
 #aim for pixels on the raster
 binary = (branches_raster > 0).astype(np.uint8)
 
-# --- identificazione delle confluenze ---
-# Calcolo del numero di pixel della rete adiacenti (8-neighborhood)
-K = np.ones((3, 3), dtype=np.uint8)
-count_3x3 = convolve2d(binary, K, mode='same', boundary='fill', fillvalue=0)
-neighbor_count = count_3x3 - binary
-# Un nodo di confluenza ha grado >= 3 nella rete; sfruttiamo neighbor_count per identificarli
-confluences_mask = (binary == 1) & (neighbor_count >= 3)
-pixels_raster = confluences_mask.astype(np.uint8)
-
-#%%%CHAT
-
-# --- 0) Accumulation nella view (stessa shape di pixels_raster) ---
+# --- identificazione delle confluenze e dei pixel a monte ---
 acc_view = grid.view(acc)              # acc calcolato prima: acc = grid.accumulation(fdir)
+fdir_view = grid.view(fdir)
 H, W = acc_view.shape
-
-# --- 1) Soglia area contribuente ---
-# in km^2:
 
 cell_area_m2 = abs(grid.affine.a * grid.affine.e)
 thr_km2 = 0.5
@@ -153,127 +138,90 @@ thr_cells = math.ceil((thr_km2 * 1e6) / cell_area_m2)
 
 mask_acc = acc_view >= thr_cells    #si crea la mask con i pixel con sufficiente acc
 
-def build_stream_graph(stream_mask, pixel_dx, pixel_dy):
-    """Costruisce un grafo non orientato dei pixel appartenenti alla rete di drenaggio."""
-    offsets = [
-        (-1, -1), (-1, 0), (-1, 1),
-        (0, -1),           (0, 1),
-        (1, -1),  (1, 0),  (1, 1),
-    ]
+neighbor_offsets = [
+    (-1, -1), (-1, 0), (-1, 1),
+    (0, -1),           (0, 1),
+    (1, -1),  (1, 0),  (1, 1),
+]
 
-    graph = nx.Graph()
-    rows, cols = np.where(stream_mask)
-    nodes = set(zip(rows, cols))
-    graph.add_nodes_from(nodes)
+d8_from_offset = {
+    (-1, -1): 32,
+    (-1, 0): 64,
+    (-1, 1): 128,
+    (0, -1): 16,
+    (0, 1): 1,
+    (1, -1): 8,
+    (1, 0): 4,
+    (1, 1): 2,
+}
 
-    for r, c in nodes:
-        for dr, dc in offsets:
-            nr, nc = r + dr, c + dc
-            if (nr, nc) not in nodes:
-                continue
-            # distanza euclidea in metri fra pixel adiacenti
-            dist = math.hypot(dc * pixel_dx, dr * pixel_dy)
-            graph.add_edge((r, c), (nr, nc), weight=dist)
+confluence_indices = []
+upstream_indices = set()
 
-    return graph
-
-
-def greedy_stream_sampling(graph, candidates, acc_array, min_distance):
-    """Seleziona nodi sul grafo mantenendo una distanza minima lungo la rete."""
-    if not candidates:
-        return []
-
-    # ordina per accumulation decrescente
-    candidates_sorted = sorted(candidates,
-                               key=lambda rc: acc_array[rc],
-                               reverse=True)
-
-    selected = []
-    for node in candidates_sorted:
-        keep = True
-        for chosen in selected:
-            try:
-                dist = nx.shortest_path_length(graph, node, chosen, weight='weight')
-            except nx.NetworkXNoPath:
-                continue
-            if dist < min_distance:
-                keep = False
-                break
-        if keep:
-            selected.append(node)
-    return selected
-
-
-# --- 2) Candidati iniziali: confluenze con soglia di accumulation ---
-candidates_mask = confluences_mask & mask_acc
-
-# Parametro di distanza minima lungo la rete (metri)
-pixel_dx = abs(grid.affine.a)
-pixel_dy = abs(grid.affine.e)
-min_stream_distance_m = 500  # personalizzabile
-
-stream_graph = build_stream_graph(binary.astype(bool), pixel_dx, pixel_dy) #Usa la function e fa un grafo dei pixel canale
-candidate_nodes = list(zip(*np.where(candidates_mask))) #lista dei pixel candidati
-
-selected_nodes = greedy_stream_sampling(
-    stream_graph, candidate_nodes, acc_view, min_stream_distance_m
-)
-
-selected_mask = np.zeros_like(candidates_mask, dtype=bool)
-for r, c in selected_nodes:
-    selected_mask[r, c] = True
-
-
-def _is_far_enough(node, chosen_nodes, graph, min_distance):
-    for chosen in chosen_nodes:
-        try:
-            dist = nx.shortest_path_length(graph, node, chosen, weight="weight")
-        except nx.NetworkXNoPath:
+for r in range(H):
+    for c in range(W):
+        branch_id = branches_raster[r, c]
+        if branch_id == 0:
             continue
-        if dist < min_distance:
-            return False
-    return True
 
+        upstream_by_branch = {}
+        for dr, dc in neighbor_offsets:
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < H and 0 <= nc < W):
+                continue
+            neighbor_branch = branches_raster[nr, nc]
+            if neighbor_branch == 0:
+                continue
 
-# Guarantee at least one pixel per branch
+            delta_row = -dr
+            delta_col = -dc
+            flow_code = d8_from_offset.get((delta_row, delta_col))
+            if flow_code is None:
+                continue
+            if fdir_view[nr, nc] != flow_code:
+                continue
+
+            upstream_by_branch.setdefault(neighbor_branch, []).append((nr, nc))
+
+        if len(upstream_by_branch) >= 2:
+            confluence_indices.append((r, c))
+            for bid, coords in upstream_by_branch.items():
+                best_rc = max(coords, key=lambda rc: acc_view[rc])
+                upstream_indices.add(best_rc)
+
+# --- selezione pixel intermedi per ciascun ramo ---
 branch_ids = np.unique(branches_raster)
 branch_ids = branch_ids[branch_ids > 0]
-selected_nodes_set = set(selected_nodes)
+
+selected_coords = set(confluence_indices)
+selected_coords.update(upstream_indices)
+intermediate_indices = set()
 
 for branch_id in branch_ids:
-    branch_mask = branches_raster == branch_id
-    if not np.any(branch_mask):
-        continue
-    if np.any(selected_mask & branch_mask):
+    branch_coords = np.argwhere(branches_raster == branch_id)
+    if branch_coords.size == 0:
         continue
 
-    branch_candidates_idx = np.argwhere(branch_mask & mask_acc)
-    if branch_candidates_idx.size == 0:
-        branch_candidates_idx = np.argwhere(branch_mask)
-    if branch_candidates_idx.size == 0:
-        continue
+    coords_list = [tuple(map(int, rc)) for rc in branch_coords]
+    remaining = [rc for rc in coords_list if rc not in selected_coords]
+    if not remaining:
+        remaining = coords_list
 
-    # Try to select a node respecting the minimum distance along the network
-    best_node = None
-    for rc in sorted(
-        (tuple(rc) for rc in branch_candidates_idx),
-        key=lambda rc: acc_view[rc],
-        reverse=True,
-    ):
-        if _is_far_enough(rc, selected_nodes_set, stream_graph, min_stream_distance_m):
-            best_node = rc
-            break
+    remaining_high_acc = [rc for rc in remaining if mask_acc[rc]]
+    if remaining_high_acc:
+        remaining = remaining_high_acc
 
-    if best_node is None:
-        # fallback: choose the highest accumulation pixel even if it violates the distance
-        best_node = max(
-            (tuple(rc) for rc in branch_candidates_idx),
-            key=lambda rc: acc_view[rc],
-        )
+    acc_values = np.array([acc_view[rc] for rc in remaining])
+    median_val = np.median(acc_values)
+    idx = int(np.argmin(np.abs(acc_values - median_val)))
+    mid_coord = remaining[idx]
 
-    selected_mask[best_node] = True
-    selected_nodes.append(best_node)
-    selected_nodes_set.add(best_node)
+    selected_coords.add(mid_coord)
+    intermediate_indices.add(mid_coord)
+
+selected_mask = np.zeros_like(branches_raster, dtype=bool)
+for r, c in selected_coords:
+    selected_mask[r, c] = True
 
 # --- 4) Risultati ---
 # selected_mask: booleano con i pixel scelti, distanziati lungo la rete
@@ -381,7 +329,7 @@ sc = ax.scatter(
                     s=18, c='red',
                     edgecolors='k', linewidths=0.3,
                     zorder=5, label='Pixel selezionati') 
-_ = plt.title('Channel network (>5000 accumulation)', size=14)
+_ = plt.title('Channel network (>1000 accumulation)', size=14)
 
 #%%%controllo pixels
 count_ones = np.sum(branches_raster > 0)
@@ -605,7 +553,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 0  # indice del sottobacino (0-based)
+i = 9  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
