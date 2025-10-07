@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Created on Mon Oct  6 12:28:45 2025
@@ -155,6 +156,16 @@ d8_from_offset = {
     (1, 0): 4,
     (1, 1): 2,
 }
+d8_to_offset = {
+    1: (0, 1),
+    2: (1, 1),
+    4: (1, 0),
+    8: (1, -1),
+    16: (0, -1),
+    32: (-1, -1),
+    64: (-1, 0),
+    128: (-1, 1),
+}
 
 def _walk_upstream_to_threshold(start_rc, branch_id, max_steps=20):
     """Move upstream along the same branch until the accumulation threshold is met."""
@@ -166,13 +177,13 @@ def _walk_upstream_to_threshold(start_rc, branch_id, max_steps=20):
         return None
 
     current = (int(r), int(c))
-    if mask_acc[current]:
-        return current
+    best_rc = current if mask_acc[current] else None
+    best_acc = acc_view[current] if mask_acc[current] else -np.inf
 
     for _ in range(max_steps):
         cr, cc = current
         best_candidate = None
-        best_acc = -np.inf
+        best_candidate_acc = -np.inf
 
         for dr, dc in neighbor_offsets:
             nr, nc = cr + dr, cc + dc
@@ -190,22 +201,79 @@ def _walk_upstream_to_threshold(start_rc, branch_id, max_steps=20):
                 continue
 
             candidate_acc = acc_view[nr, nc]
-            if candidate_acc > best_acc:
-                best_acc = candidate_acc
+            if candidate_acc > best_candidate_acc:
+                best_candidate_acc = candidate_acc
                 best_candidate = (int(nr), int(nc))
 
         if best_candidate is None:
             break
 
         current = best_candidate
-        if mask_acc[current]:
-            return current
+        if mask_acc[current] and acc_view[current] > best_acc:
+            best_acc = acc_view[current]
+            best_rc = current
 
-    return current if mask_acc[current] else None
+    return best_rc
 
 
-confluence_indices = []
-upstream_indices = set()
+def _walk_downstream_to_threshold(start_rc, branch_id, max_steps=20):
+    """Move downstream along the same branch until reaching the accumulation threshold."""
+    if start_rc is None:
+        return None
+
+    r, c = start_rc
+    if not (0 <= r < H and 0 <= c < W):
+        return None
+
+    current = (int(r), int(c))
+    best_rc = current if mask_acc[current] else None
+    best_acc = acc_view[current] if mask_acc[current] else -np.inf
+
+    for _ in range(max_steps):
+        flow_code = fdir_view[current]
+        offset = d8_to_offset.get(int(flow_code))
+        if offset is None:
+            break
+
+        nr = current[0] + offset[0]
+        nc = current[1] + offset[1]
+        if not (0 <= nr < H and 0 <= nc < W):
+            break
+
+        if branch_id is not None and branch_id > 0:
+            if branches_raster[nr, nc] not in (0, branch_id):
+                break
+
+        current = (int(nr), int(nc))
+        if mask_acc[current] and acc_view[current] > best_acc:
+            best_acc = acc_view[current]
+            best_rc = current
+
+    return best_rc
+
+
+selected_coords_set = set()
+selected_coords_list = []
+
+def _add_selected_coord(rc):
+    if rc is None:
+        return
+
+    r, c = map(int, rc)
+    if not (0 <= r < H and 0 <= c < W):
+        return
+    if catch_view is not None and not catch_view[r, c]:
+        return
+    if not mask_acc[r, c]:
+        return
+
+    key = (r, c)
+    if key in selected_coords_set:
+        return
+
+    selected_coords_set.add(key)
+    selected_coords_list.append(key)
+
 
 for r in range(H):
     for c in range(W):
@@ -235,9 +303,6 @@ for r in range(H):
         if len(upstream_by_branch) < 2:
             continue
 
-        if not mask_acc[r, c]:
-            continue
-
         valid_upstream = []
         for bid, coords in upstream_by_branch.items():
             best_rc = max(coords, key=lambda rc: acc_view[rc])
@@ -245,18 +310,18 @@ for r in range(H):
             if walked_rc is not None:
                 valid_upstream.append(walked_rc)
 
-        # Keep confluence only if at least two upstream branches reach the threshold
-        if len(valid_upstream) >= 2:
-            confluence_indices.append((r, c))
-            upstream_indices.update(valid_upstream)
+        if len(valid_upstream) < 2:
+            continue
 
-# --- selezione pixel intermedi per ciascun ramo ---
+        downstream_rc = _walk_downstream_to_threshold((r, c), branches_raster[r, c])
+        _add_selected_coord(downstream_rc)
+
+        for rc in sorted(valid_upstream, key=lambda rc: acc_view[rc], reverse=True):
+            _add_selected_coord(rc)
+
 branch_ids = np.unique(branches_raster)
 branch_ids = branch_ids[branch_ids > 0]
 
-selected_coords = set(confluence_indices)
-selected_coords.update(upstream_indices)
-intermediate_indices = set()
 
 for branch_id in branch_ids:
     branch_coords = np.argwhere(branches_raster == branch_id)
@@ -264,37 +329,39 @@ for branch_id in branch_ids:
         continue
 
     coords_list = [tuple(map(int, rc)) for rc in branch_coords]
-    remaining = [rc for rc in coords_list if rc not in selected_coords]
-    if not remaining:
-        remaining = coords_list
+    coords_list = [rc for rc in coords_list if catch_view is None or catch_view[rc]]
+    if not coords_list:
+        continue    
+        
+    remaining = coords_list
 
     remaining_high_acc = [rc for rc in remaining if mask_acc[rc]]
-    if remaining_high_acc:
-        remaining = remaining_high_acc
+    candidates = remaining_high_acc or remaining
+    if not candidates:
+        continue
 
-    acc_values = np.array([acc_view[rc] for rc in remaining])
-    median_val = np.median(acc_values)
-    idx = int(np.argmin(np.abs(acc_values - median_val)))
-    mid_coord = remaining[idx]
+    best_coord = max(candidates, key=lambda rc: acc_view[rc])
+    _add_selected_coord(best_coord)
 
-    selected_coords.add(mid_coord)
-    intermediate_indices.add(mid_coord)
+selected_coords_list.sort(key=lambda rc: (-acc_view[rc], rc[0], rc[1]))
 
-selected_mask = np.zeros_like(branches_raster, dtype=bool)
-for r, c in selected_coords:
-    selected_mask[r, c] = True
+
 
 # --- 4) Risultati ---
 # selected_mask: booleano con i pixel scelti, distanziati lungo la rete
-pixels_selected = selected_mask.astype(np.uint8)
 
-# coordinate (x,y) dei pixel scelti
-
-r_sel, c_sel = np.where(selected_mask)
-
-# --- Snap dei pixel selezionati alla cella di accumulo più vicina sulla rete ---
 channel_mask = branches_raster.astype(bool)
 selected_points = []
+
+def _build_selected_mask(points):
+    mask = np.zeros_like(branches_raster, dtype=bool)
+    for pt in points:
+        r, c = pt.get("snapped_index", (None, None))
+        if r is None or c is None:
+            continue
+        if 0 <= r < H and 0 <= c < W:
+            mask[r, c] = True
+    return mask
 
 
 def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
@@ -336,10 +403,11 @@ def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
             return best_rc
     return best_rc
 
-for rr, cc in zip(r_sel, c_sel):
+for rr, cc in selected_coords_list:
     point = {
         "row": int(rr),
         "col": int(cc),
+        "original_index": (int(rr), int(cc)),
     }
     x, y = rasterio.transform.xy(grid.affine, rr, cc, offset="center")
     point["initial_coord"] = (float(x), float(y))
@@ -356,12 +424,12 @@ for rr, cc in zip(r_sel, c_sel):
             rsnap_float, csnap_float = rowcol(grid.affine, xsnap, ysnap)
             rsnap, csnap = int(rsnap_float), int(csnap_float)
         except Exception:
-            rsnap, csnap = rr, cc
+            rsnap, csnap = int(rr), int(cc)
     else:
-        rsnap, csnap = rr, cc
+        rsnap, csnap = int(rr), int(cc)
         xsnap, ysnap = x, y
 
-    # in caso di snap fuori canale, cerca localmente il massimo di accumulo
+
     if not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]:
         rsnap, csnap = _local_max_index(rr, cc, acc_view, mask=channel_mask)
         xsnap, ysnap = rasterio.transform.xy(
@@ -371,40 +439,7 @@ for rr, cc in zip(r_sel, c_sel):
     point["snapped_index"] = (int(rsnap), int(csnap))
     point["snapped_coord"] = (float(xsnap), float(ysnap))
     selected_points.append(point)
-#%%%plot pixel sulla rete
-sns.set_palette('husl')
-fig, ax = plt.subplots(figsize=(8.5,6.5))
 
-plt.xlim(grid.bbox[0], grid.bbox[2])
-plt.ylim(grid.bbox[1], grid.bbox[3])
-ax.set_aspect('equal')
-
-for branch in branches['features']:
-    line = np.asarray(branch['geometry']['coordinates'])
-    plt.plot(line[:, 0], line[:, 1])
-zorder=2
-
-sc = ax.scatter(
-                    [pt["snapped_coord"][0] for pt in selected_points],
-                    [pt["snapped_coord"][1] for pt in selected_points],
-                    s=18, c='red',
-                    edgecolors='k', linewidths=0.3,
-                    zorder=5, label='Pixel selezionati') 
-_ = plt.title('Channel network (>1000 accumulation)', size=14)
-
-#%%%controllo pixels
-count_ones = np.sum(branches_raster > 0)
-confluences = pixels_selected.sum()
-print("Pixel canali", count_ones)
-print("Numero confluences:", confluences)
-
-check = pixels_selected.astype(bool) & (branches_raster > 0)
-check_ones = np.sum(check)
-print("confluences sulla rete", check_ones)
-
-if check_ones == confluences: 
-    print("Pixel Trovati")
-else: print("Discrepanze pixel rete")
 #%% Area contribuente dei pixel estratti (catchments)
 
 fdir_view = grid.view(fdir)         # shape della view, es. (82, 52)        # transform corrente (della view)
@@ -515,8 +550,13 @@ for point in selected_points:
                     expected_area = expected_area_orig
 
     if mask is None:
+        point["catchment_found"] = False
         failed_points.append({"point": point, "reason": "catchment non trovato"})
         continue
+    
+    point["catchment_found"] = True
+    point["snapped_index"] = (int(rsnap), int(csnap))
+    point["snapped_coord"] = (float(x_snap), float(y_snap))
 
     actual_area = mask.sum() * cell_area_m2
     deviation = (
@@ -531,16 +571,52 @@ for point in selected_points:
     areas.append(actual_area)
     expected_areas.append(expected_area)
 
-    updated_point = {
-        **point,
-        "snapped_index": (rsnap, csnap),
-        "snapped_coord": (float(x_snap), float(y_snap)),
-        "deviation": deviation,
-    }
-    catchment_points.append(updated_point)
+    point["expected_area"] = float(expected_area)
+    point["catchment_area"] = float(actual_area)
+    point["deviation"] = float(deviation)
+    catchment_points.append(point.copy())
 
     label_id = len(catchments)
     labels[mask & (labels == 0)] = label_id
+
+selected_mask = _build_selected_mask(catchment_points)
+pixels_selected = selected_mask.astype(np.uint8)
+
+#%%%plot pixel sulla rete
+sns.set_palette('husl')
+fig, ax = plt.subplots(figsize=(8.5,6.5))
+
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+zorder=2
+
+sc = ax.scatter(
+                    [pt["snapped_coord"][0] for pt in catchment_points],
+                    [pt["snapped_coord"][1] for pt in catchment_points],
+                    s=18, c='red',
+                    edgecolors='k', linewidths=0.3,
+                    zorder=5, label='Pixel selezionati')
+_ = plt.title('Channel network (>1000 accumulation)', size=14)
+
+#%%%controllo pixels
+count_ones = np.sum(branches_raster > 0)
+selected_count = pixels_selected.sum()
+print("Pixel canali", count_ones)
+print("Numero confluences:", selected_count)
+
+check = pixels_selected.astype(bool) & (branches_raster > 0)
+check_ones = np.sum(check)
+print("confluences sulla rete", check_ones)
+
+if check_ones == selected_count:
+    print("Pixel Trovati")
+else:
+    print("Discrepanze pixel rete")
 
 if failed_points:
     print(f"Catchment non estratti: {len(failed_points)}")
@@ -646,7 +722,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 78  # indice del sottobacino (0-based)
+i = 35  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
