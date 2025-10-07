@@ -254,96 +254,79 @@ def _walk_downstream_to_threshold(start_rc, branch_id, max_steps=20):
 
 selected_coords_set = set()
 selected_coords_list = []
+branch_selections = {}
 
 def _add_selected_coord(rc):
     if rc is None:
-        return
+        return False
 
     r, c = map(int, rc)
     if not (0 <= r < H and 0 <= c < W):
-        return
+        return False
     if catch_view is not None and not catch_view[r, c]:
-        return
+        return False
     if not mask_acc[r, c]:
-        return
+        return False
 
     key = (r, c)
     if key in selected_coords_set:
-        return
+        return False
 
     selected_coords_set.add(key)
     selected_coords_list.append(key)
+    return True
 
+unique_branch_ids = np.unique(branches_raster)
+unique_branch_ids = unique_branch_ids[unique_branch_ids > 0]
 
-for r in range(H):
-    for c in range(W):
-        branch_id = branches_raster[r, c]
-        if branch_id == 0:
-            continue
-
-        upstream_by_branch = {}
-        for dr, dc in neighbor_offsets:
-            nr, nc = r + dr, c + dc
-            if not (0 <= nr < H and 0 <= nc < W):
-                continue
-            neighbor_branch = branches_raster[nr, nc]
-            if neighbor_branch == 0:
-                continue
-
-            delta_row = -dr
-            delta_col = -dc
-            flow_code = d8_from_offset.get((delta_row, delta_col))
-            if flow_code is None:
-                continue
-            if fdir_view[nr, nc] != flow_code:
-                continue
-
-            upstream_by_branch.setdefault(neighbor_branch, []).append((nr, nc))
-
-        if len(upstream_by_branch) < 2:
-            continue
-
-        valid_upstream = []
-        for bid, coords in upstream_by_branch.items():
-            best_rc = max(coords, key=lambda rc: acc_view[rc])
-            walked_rc = _walk_upstream_to_threshold(best_rc, bid)
-            if walked_rc is not None:
-                valid_upstream.append(walked_rc)
-
-        if len(valid_upstream) < 2:
-            continue
-
-        downstream_rc = _walk_downstream_to_threshold((r, c), branches_raster[r, c])
-        _add_selected_coord(downstream_rc)
-
-        for rc in sorted(valid_upstream, key=lambda rc: acc_view[rc], reverse=True):
-            _add_selected_coord(rc)
-
-branch_ids = np.unique(branches_raster)
-branch_ids = branch_ids[branch_ids > 0]
-
-
-for branch_id in branch_ids:
-    branch_coords = np.argwhere(branches_raster == branch_id)
-    if branch_coords.size == 0:
+for branch_id in unique_branch_ids:
+    branch_mask = branches_raster == branch_id
+    candidate_indices = np.argwhere(branch_mask)
+    if candidate_indices.size == 0:
         continue
 
-    coords_list = [tuple(map(int, rc)) for rc in branch_coords]
-    coords_list = [rc for rc in coords_list if catch_view is None or catch_view[rc]]
-    if not coords_list:
-        continue    
-        
-    remaining = coords_list
+    filtered_coords = []
+    for r, c in candidate_indices:
+        if catch_view is not None and not catch_view[r, c]:
+            continue
+        if not mask_acc[r, c]:
+            continue
+        filtered_coords.append((int(r), int(c)))
 
-    remaining_high_acc = [rc for rc in remaining if mask_acc[rc]]
-    candidates = remaining_high_acc or remaining
-    if not candidates:
+    if not filtered_coords:
         continue
 
-    best_coord = max(candidates, key=lambda rc: acc_view[rc])
-    _add_selected_coord(best_coord)
+    filtered_coords.sort(key=lambda rc: acc_view[rc])
+    n_coords = len(filtered_coords)
 
-selected_coords_list.sort(key=lambda rc: (-acc_view[rc], rc[0], rc[1]))
+    branch_selected = []
+
+    if _add_selected_coord(filtered_coords[0]):
+        branch_selected.append(filtered_coords[0])
+
+    if n_coords > 1 and _add_selected_coord(filtered_coords[-1]):
+        branch_selected.append(filtered_coords[-1])
+
+    if n_coords > 2:
+        n_intermediate = max(1, math.ceil(n_coords / 30))
+        n_intermediate = min(n_intermediate, n_coords - 2)
+
+        if n_intermediate > 0:
+            intermediate_positions = np.linspace(1, n_coords - 2, n_intermediate)
+            for pos in intermediate_positions:
+                idx = int(round(pos))
+                idx = min(max(idx, 1), n_coords - 2)
+                coord = filtered_coords[idx]
+                if _add_selected_coord(coord):
+                    branch_selected.append(coord)
+
+    if branch_selected:
+        branch_selections[int(branch_id)] = branch_selected
+
+total_selected = sum(len(v) for v in branch_selections.values())
+print(f"Selezionati {total_selected} pixel su {len(branch_selections)} rami.")
+
+selected_coords_list.sort(key=lambda rc: (-acc_view[rc], rc[0], rc[1])) 
 
 
 
