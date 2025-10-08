@@ -20,6 +20,7 @@ import seaborn as sns
 
 data_folder = 'C:/Users/loren/Desktop/Tesi_magi/codes/data'
 
+
 # Load the DEM files
 
 grid = Grid.from_raster(os.path.join(data_folder,'DEMfel.tif'), data_name='grid data')
@@ -109,7 +110,21 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
     
 _ = plt.title('Channel network (>1000 accumulation)', size=14)
+#%% Impostazioni distribuzione pixel lungo i rami
 
+# Modalità di posizionamento dei pixel intermedi.
+# "equidistant": distribuisce i pixel intermedi in modo equidistante tra il minimo e il massimo
+#                 accumulo del ramo.
+# "spacing": inserisce pixel intermedi ogni INTERMEDIATE_SPACING_METERS metri lungo il ramo.
+PIXEL_PLACEMENT_MODE = "equidistant"
+
+# Numero massimo di pixel intermedi per ramo da posizionare in modalità "equidistant".
+# Se None viene usata una stima automatica basata sulla lunghezza del ramo (numero di celle).
+MAX_INTERMEDIATE_PIXELS = 2
+
+# Distanza (metri) tra i pixel intermedi quando PIXEL_PLACEMENT_MODE == "spacing".
+# Se la lunghezza del ramo è inferiore a questa distanza non vengono inseriti punti intermedi.
+INTERMEDIATE_SPACING_METERS = 600.0
 #%% Selecting pixels
 
 transform_view = grid.affine       # affine della view corrente (dopo il clip)
@@ -135,6 +150,8 @@ fdir_view = grid.view(fdir)
 H, W = acc_view.shape
 
 cell_area_m2 = abs(grid.affine.a * grid.affine.e)
+cell_size_x = abs(grid.affine.a)
+cell_size_y = abs(grid.affine.e)
 thr_km2 = 0.5
 thr_cells = math.ceil((thr_km2 * 1e6) / cell_area_m2)
 
@@ -299,28 +316,87 @@ for branch_id in unique_branch_ids:
     filtered_coords.sort(key=lambda rc: acc_view[rc])
     n_coords = len(filtered_coords)
 
+    # Distanze cumulative lungo il ramo (ordinate da monte a valle)
+    cumulative_distances = [0.0]
+    for idx in range(1, n_coords):
+        r0, c0 = filtered_coords[idx - 1]
+        r1, c1 = filtered_coords[idx]
+        dr = (r1 - r0) * cell_size_y
+        dc = (c1 - c0) * cell_size_x
+        step_distance = math.hypot(dr, dc)
+        cumulative_distances.append(cumulative_distances[-1] + step_distance)
+
     branch_selected = []
+    used_indices = set()
 
     if _add_selected_coord(filtered_coords[0]):
         branch_selected.append(filtered_coords[0])
+        used_indices.add(0)
 
     if n_coords > 1 and _add_selected_coord(filtered_coords[-1]):
         branch_selected.append(filtered_coords[-1])
+        used_indices.add(n_coords - 1)
 
-    if n_coords > 2:
-        n_intermediate = max(1, math.ceil(n_coords / 30))
-        n_intermediate = min(n_intermediate, n_coords - 2)
+    available_slots = max(0, n_coords - 2)
 
-        if n_intermediate > 0:
-            intermediate_positions = np.linspace(1, n_coords - 2, n_intermediate)
-            for pos in intermediate_positions:
-                idx = int(round(pos))
-                idx = min(max(idx, 1), n_coords - 2)
-                coord = filtered_coords[idx]
-                if _add_selected_coord(coord):
-                    branch_selected.append(coord)
+    if n_coords > 2 and available_slots > 0:
+        mode = (PIXEL_PLACEMENT_MODE or "").strip().lower()
+        target_distances = []
+
+        if mode == "spacing":
+            try:
+                spacing_m = float(INTERMEDIATE_SPACING_METERS)
+            except (TypeError, ValueError):
+                spacing_m = 0.0
+            if spacing_m > 0 and cumulative_distances[-1] > 0:
+                n_targets = int(cumulative_distances[-1] // spacing_m)
+                max_intermediate = None
+                if MAX_INTERMEDIATE_PIXELS is not None:
+                    try:
+                        max_intermediate = int(MAX_INTERMEDIATE_PIXELS)
+                    except (TypeError, ValueError):
+                        max_intermediate = None
+                if max_intermediate is not None:
+                    n_targets = min(n_targets, max_intermediate)
+                n_targets = min(n_targets, available_slots)
+                target_distances = [spacing_m * i for i in range(1, n_targets + 1)]
+        else:
+            max_intermediate = None
+            if MAX_INTERMEDIATE_PIXELS is not None:
+                try:
+                    max_intermediate = int(MAX_INTERMEDIATE_PIXELS)
+                except (TypeError, ValueError):
+                    max_intermediate = None
+            if max_intermediate is not None:
+                n_intermediate = min(max_intermediate, available_slots)
+            else:
+                n_intermediate = max(1, math.ceil(n_coords / 30))
+                n_intermediate = min(n_intermediate, available_slots)
+
+            if n_intermediate > 0 and cumulative_distances[-1] > 0:
+                target_distances = np.linspace(
+                    0, cumulative_distances[-1], n_intermediate + 2
+                )[1:-1]
+
+        for target_distance in target_distances:
+            available_indices = [
+                i for i in range(1, n_coords - 1) if i not in used_indices
+            ]
+            if not available_indices:
+                break
+
+            closest_idx = min(
+                available_indices,
+                key=lambda i: abs(cumulative_distances[i] - target_distance),
+            )
+
+            coord = filtered_coords[closest_idx]
+            if _add_selected_coord(coord):
+                branch_selected.append(coord)
+            used_indices.add(closest_idx)
 
     if branch_selected:
+        branch_selected.sort(key=lambda rc: acc_view[rc])
         branch_selections[int(branch_id)] = branch_selected
 
 total_selected = sum(len(v) for v in branch_selections.values())
