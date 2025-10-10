@@ -8,38 +8,52 @@ Created on Mon Oct  6 12:28:45 2025
 
 import os
 import math
-from pysheds.grid import Grid
-import rasterio
-from rasterio.transform import rowcol
-import numpy as np
-import matplotlib.pyplot as plt
+
 import matplotlib.colors as colors
+import matplotlib.pyplot as plt
+import numpy as np
+import rasterio
 import seaborn as sns
-
-#%%Data
-
-data_folder = 'C:/Users/loren/Desktop/Tesi_magi/codes/data'
+from pysheds.grid import Grid
+from rasterio.transform import rowcol
 
 
-# Load the DEM files
+# --- Configurazione generale ---
+DATA_FOLDER = "C:/Users/loren/Desktop/Tesi_magi/codes/data"
+DEM_FILENAME = "DEMfel.tif"
+POUR_POINT = (1.6825e6, 5.065e6)
+SNAP_ACCUMULATION_THRESHOLD = 100000
+BRANCH_ACCUMULATION_THRESHOLD = 1000
+MIN_ACCUMULATION_KM2 = 0.5
 
-grid = Grid.from_raster(os.path.join(data_folder,'DEMfel.tif'), data_name='grid data')
-dem = grid.read_raster(os.path.join(data_folder,'DEMfel.tif'), data_name='dem')
+# --- Parametri selezione pixel ---
+# "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
+# "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
+PIXEL_PLACEMENT_MODE = "equidistant"
+MAX_INTERMEDIATE_PIXELS = 2
+INTERMEDIATE_SPACING_METERS = 600.0
+
+
+# --- Lettura dei dati di input ---
+grid = Grid.from_raster(os.path.join(DATA_FOLDER, DEM_FILENAME), data_name="grid data")
+dem = grid.read_raster(os.path.join(DATA_FOLDER, DEM_FILENAME), data_name="dem")
 
 flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem)
 fdir = grid.flowdir(inflated_dem)
 
-# Compute accumulation
+# Calcola l'accumulo di flusso a valle di ogni cella.
 acc = grid.accumulation(fdir)
 
-# Snap pour point to high accumulation cell (find the main outlet)
-xy = 1.6825e6, 5.065e6
-x_snap, y_snap = grid.snap_to_mask(acc > 100000,(xy))
+# Aggancia il punto di chiusura sul pixel con accumulo sufficiente.
+x_snap, y_snap = grid.snap_to_mask(
+    acc > SNAP_ACCUMULATION_THRESHOLD,
+    POUR_POINT,
+)
 
 
-#plot densità di drenaggio e sezione di chiusura
-fig, ax = plt.subplots(figsize=(8,6))
+# --- Visualizzazione accumulo di flusso e punto di chiusura ---
+fig, ax = plt.subplots(figsize=(8, 6))
 fig.patch.set_alpha(0)
 plt.grid('on', zorder=3)
 im = ax.imshow(acc, extent=grid.extent, zorder=2,
@@ -87,9 +101,12 @@ ax.set_title('DEM', size=14)
 plt.tight_layout()
 plt.show()
 #%%branches
+# Limita la griglia al bacino e ricava la rete drenante principale.
 grid.clip_to(catch)
 catch_view = grid.view(catch).astype(bool)
-branches = grid.extract_river_network(fdir, acc>1000)
+branches = grid.extract_river_network(
+    fdir, acc > BRANCH_ACCUMULATION_THRESHOLD
+)
                                       
 # coordinate del seed principale nella view clippata
 main_seed_row, main_seed_col = map(int, rowcol(grid.affine, x_snap, y_snap))
@@ -109,26 +126,17 @@ for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
     
-_ = plt.title('Channel network (>1000 accumulation)', size=14)
+_ = plt.title(
+    f"Channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+    size=14,
+)
 #%% Impostazioni distribuzione pixel lungo i rami
+# I parametri sono definiti nella sezione di configurazione iniziale.
+# Rasterizza la rete per identificare i pixel appartenenti a ciascun ramo.
 
-# Modalità di posizionamento dei pixel intermedi.
-# "equidistant": distribuisce i pixel intermedi in modo equidistante tra il minimo e il massimo
-#                 accumulo del ramo.
-# "spacing": inserisce pixel intermedi ogni INTERMEDIATE_SPACING_METERS metri lungo il ramo.
-PIXEL_PLACEMENT_MODE = "equidistant"
-
-# Numero massimo di pixel intermedi per ramo da posizionare in modalità "equidistant".
-# Se None viene usata una stima automatica basata sulla lunghezza del ramo (numero di celle).
-MAX_INTERMEDIATE_PIXELS = 2
-
-# Distanza (metri) tra i pixel intermedi quando PIXEL_PLACEMENT_MODE == "spacing".
-# Se la lunghezza del ramo è inferiore a questa distanza non vengono inseriti punti intermedi.
-INTERMEDIATE_SPACING_METERS = 600.0
-#%% Selecting pixels
-
+fdir_view = grid.view(fdir)
 transform_view = grid.affine       # affine della view corrente (dopo il clip)
-shape_view = grid.view(fdir).shape 
+shape_view = fdir_view.shape
 
 shapes = (
     (feat["geometry"], idx + 1) for idx, feat in enumerate(branches["features"])
@@ -141,28 +149,28 @@ branches_raster = rasterio.features.rasterize(
     all_touched=False,
     dtype="uint16",
 )
-#aim for pixels on the raster
-binary = (branches_raster > 0).astype(np.uint8)
+
 
 # --- identificazione delle confluenze e dei pixel a monte ---
 acc_view = grid.view(acc)              # acc calcolato prima: acc = grid.accumulation(fdir)
-fdir_view = grid.view(fdir)
 H, W = acc_view.shape
 
 cell_area_m2 = abs(grid.affine.a * grid.affine.e)
 cell_size_x = abs(grid.affine.a)
 cell_size_y = abs(grid.affine.e)
-thr_km2 = 0.5
-thr_cells = math.ceil((thr_km2 * 1e6) / cell_area_m2)
+thr_cells = math.ceil((MIN_ACCUMULATION_KM2 * 1e6) / cell_area_m2)
 
-mask_acc = acc_view >= thr_cells    #si crea la mask con i pixel con sufficiente acc
+# Seleziona i pixel con accumulo sufficiente per essere considerati candidati.
+mask_acc = acc_view >= thr_cells
 
+# Offsets per analizzare i vicini secondo lo schema D8.
 neighbor_offsets = [
     (-1, -1), (-1, 0), (-1, 1),
     (0, -1),           (0, 1),
     (1, -1),  (1, 0),  (1, 1),
 ]
 
+# Mapping tra offset e codici di direzione del flusso D8.
 d8_from_offset = {
     (-1, -1): 32,
     (-1, 0): 64,
@@ -173,6 +181,8 @@ d8_from_offset = {
     (1, 0): 4,
     (1, 1): 2,
 }
+
+# Mapping inverso dai codici D8 all'offset.
 d8_to_offset = {
     1: (0, 1),
     2: (1, 1),
@@ -184,99 +194,16 @@ d8_to_offset = {
     128: (-1, 1),
 }
 
-def _walk_upstream_to_threshold(start_rc, branch_id, max_steps=20):
-    """Move upstream along the same branch until the accumulation threshold is met."""
-    if start_rc is None:
-        return None
-
-    r, c = start_rc
-    if not (0 <= r < H and 0 <= c < W):
-        return None
-
-    current = (int(r), int(c))
-    best_rc = current if mask_acc[current] else None
-    best_acc = acc_view[current] if mask_acc[current] else -np.inf
-
-    for _ in range(max_steps):
-        cr, cc = current
-        best_candidate = None
-        best_candidate_acc = -np.inf
-
-        for dr, dc in neighbor_offsets:
-            nr, nc = cr + dr, cc + dc
-            if not (0 <= nr < H and 0 <= nc < W):
-                continue
-            if branches_raster[nr, nc] != branch_id:
-                continue
-
-            delta_row = -dr
-            delta_col = -dc
-            flow_code = d8_from_offset.get((delta_row, delta_col))
-            if flow_code is None:
-                continue
-            if fdir_view[nr, nc] != flow_code:
-                continue
-
-            candidate_acc = acc_view[nr, nc]
-            if candidate_acc > best_candidate_acc:
-                best_candidate_acc = candidate_acc
-                best_candidate = (int(nr), int(nc))
-
-        if best_candidate is None:
-            break
-
-        current = best_candidate
-        if mask_acc[current] and acc_view[current] > best_acc:
-            best_acc = acc_view[current]
-            best_rc = current
-
-    return best_rc
-
-
-def _walk_downstream_to_threshold(start_rc, branch_id, max_steps=20):
-    """Move downstream along the same branch until reaching the accumulation threshold."""
-    if start_rc is None:
-        return None
-
-    r, c = start_rc
-    if not (0 <= r < H and 0 <= c < W):
-        return None
-
-    current = (int(r), int(c))
-    best_rc = current if mask_acc[current] else None
-    best_acc = acc_view[current] if mask_acc[current] else -np.inf
-
-    for _ in range(max_steps):
-        flow_code = fdir_view[current]
-        offset = d8_to_offset.get(int(flow_code))
-        if offset is None:
-            break
-
-        nr = current[0] + offset[0]
-        nc = current[1] + offset[1]
-        if not (0 <= nr < H and 0 <= nc < W):
-            break
-
-        if branch_id is not None and branch_id > 0:
-            if branches_raster[nr, nc] not in (0, branch_id):
-                break
-
-        current = (int(nr), int(nc))
-        if mask_acc[current] and acc_view[current] > best_acc:
-            best_acc = acc_view[current]
-            best_rc = current
-
-    return best_rc
-
 
 selected_coords_set = set()
 selected_coords_list = []
+# Mappa branch_id -> lista di pixel selezionati (per analisi e debug).
 branch_selections = {}
 
 def _add_selected_coord(rc):
+    """Aggiunge una cella alla lista dei punti selezionati se valida."""
     if rc is None:
         return False
-
     r, c = map(int, rc)
     if not (0 <= r < H and 0 <= c < W):
         return False
@@ -296,12 +223,14 @@ def _add_selected_coord(rc):
 unique_branch_ids = np.unique(branches_raster)
 unique_branch_ids = unique_branch_ids[unique_branch_ids > 0]
 
+# Per ciascun ramo seleziona pixel significativi lungo la direzione del flusso.
 for branch_id in unique_branch_ids:
     branch_mask = branches_raster == branch_id
     candidate_indices = np.argwhere(branch_mask)
     if candidate_indices.size == 0:
         continue
-
+    
+# Filtra i pixel del ramo che soddisfano le condizioni sul bacino e sull'accumulo.
     filtered_coords = []
     for r, c in candidate_indices:
         if catch_view is not None and not catch_view[r, c]:
@@ -329,18 +258,22 @@ for branch_id in unique_branch_ids:
     branch_selected = []
     used_indices = set()
 
+# Seleziona sempre l'estremo a monte del ramo.
     if _add_selected_coord(filtered_coords[0]):
         branch_selected.append(filtered_coords[0])
         used_indices.add(0)
 
+# Seleziona sempre l'estremo a valle del ramo.
     if n_coords > 1 and _add_selected_coord(filtered_coords[-1]):
         branch_selected.append(filtered_coords[-1])
         used_indices.add(n_coords - 1)
 
+# Numero massimo di slot disponibili per eventuali punti intermedi.
     available_slots = max(0, n_coords - 2)
 
     if n_coords > 2 and available_slots > 0:
         mode = (PIXEL_PLACEMENT_MODE or "").strip().lower()
+        # Target distances esprime le posizioni desiderate lungo il ramo.
         target_distances = []
 
         if mode == "spacing":
@@ -403,16 +336,19 @@ total_selected = sum(len(v) for v in branch_selections.values())
 print(f"Selezionati {total_selected} pixel su {len(branch_selections)} rami.")
 
 selected_coords_list.sort(key=lambda rc: (-acc_view[rc], rc[0], rc[1])) 
-
+# Ordina i pixel per importanza (accumulo decrescente e coordinate stabili).
 
 
 # --- 4) Risultati ---
 # selected_mask: booleano con i pixel scelti, distanziati lungo la rete
 
+# Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
+# Lista di dizionari con le informazioni principali di ciascun pixel selezionato.
 selected_points = []
 
 def _build_selected_mask(points):
+    """Costruisce una mask booleana partendo dalla lista di punti selezionati."""
     mask = np.zeros_like(branches_raster, dtype=bool)
     for pt in points:
         r, c = pt.get("snapped_index", (None, None))
@@ -462,6 +398,7 @@ def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
             return best_rc
     return best_rc
 
+# Costruisce il set di punti selezionati con coordinate e informazioni di snap.
 for rr, cc in selected_coords_list:
     point = {
         "row": int(rr),
@@ -501,8 +438,6 @@ for rr, cc in selected_coords_list:
 
 #%% Area contribuente dei pixel estratti (catchments)
 
-fdir_view = grid.view(fdir)         # shape della view, es. (82, 52)        # transform corrente (della view)
-
 xmin, ymin, xmax, ymax = grid.bbox
 
 catchments = []   # lista di maschere boolean (una per punto)
@@ -528,6 +463,7 @@ for point in selected_points:
         continue
 
     def _compute_catchment(row, col):
+        """Estrae l'area contribuente a partire da una cella della rete."""
         row = int(row)
         col = int(col)
         if not (0 <= row < H and 0 <= col < W):
@@ -643,7 +579,7 @@ pixels_selected = selected_mask.astype(np.uint8)
 
 #%%%plot pixel sulla rete
 sns.set_palette('husl')
-fig, ax = plt.subplots(figsize=(8.5,6.5))
+fig, ax = plt.subplots(figsize=(8.5, 6.5))
 
 plt.xlim(grid.bbox[0], grid.bbox[2])
 plt.ylim(grid.bbox[1], grid.bbox[3])
@@ -652,7 +588,6 @@ ax.set_aspect('equal')
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
-zorder=2
 
 sc = ax.scatter(
                     [pt["snapped_coord"][0] for pt in catchment_points],
@@ -660,7 +595,10 @@ sc = ax.scatter(
                     s=18, c='red',
                     edgecolors='k', linewidths=0.3,
                     zorder=5, label='Pixel selezionati')
-_ = plt.title('Channel network (>1000 accumulation)', size=14)
+_ = plt.title(
+    f"Channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+    size=14,
+)
 
 #%%%controllo pixels
 count_ones = np.sum(branches_raster > 0)
@@ -804,7 +742,6 @@ rain_value = 10.0         # valore quando piove (es. 10 mm)
 value_unit = "mm"         # solo informativo per l'output/etichetta
 
 # --- Griglia: usiamo la view clippata (coerente coi catchments) ---
-fdir_view = grid.view(fdir)         
 H, W = fdir_view.shape
 cell_area = abs(transform_view.a * transform_view.e)  # area cella (tip. m²)
 
@@ -813,7 +750,7 @@ rng = np.random.default_rng(seed=42)  # fissiamo il seme per riproducibilità
 rain = rng.choice([0.0, rain_value], size=(T, H, W), p=[1-p_rain, p_rain])
 
 
-#Precipitazioni medie
+#Precipitazioni medie per cella per sottobacino
 rain_time_mean = rain.mean(axis=0)  # media temporale per pixel 
 
 
