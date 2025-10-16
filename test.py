@@ -20,7 +20,7 @@ from rasterio.transform import rowcol
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_fixed.tif"
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif"
 POUR_POINT = (52.197884,	8.710165)
 SNAP_ACCUMULATION_THRESHOLD = 1000
 BRANCH_ACCUMULATION_THRESHOLD = 4000
@@ -798,5 +798,6 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
+
 
 
