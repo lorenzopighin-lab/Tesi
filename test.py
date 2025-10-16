@@ -21,7 +21,7 @@ from rasterio.transform import rowcol
 # --- Configurazione generale ---
 
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_fixed.tif"
-POUR_POINT = (480190.543, 5783087.394)
+POUR_POINT = (52.197884,	8.710165)
 SNAP_ACCUMULATION_THRESHOLD = 1000
 BRANCH_ACCUMULATION_THRESHOLD = 4000
 MIN_ACCUMULATION_KM2 = 10
@@ -739,7 +739,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 4  # indice del sottobacino (0-based)
+i = 120  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
