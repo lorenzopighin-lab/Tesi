@@ -19,10 +19,10 @@ from rasterio.transform import rowcol
 
 
 # --- Configurazione generale ---
-DATA_FOLDER = "C:/Users/loren/Desktop/Tesi_magi/codes/data"
-DEM_FILENAME = "DEMfel.tif"
-POUR_POINT = (1.6825e6, 5.065e6)
-SNAP_ACCUMULATION_THRESHOLD = 100000
+
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_nodata.tif"
+POUR_POINT = (52.197884,	8.710165)
+SNAP_ACCUMULATION_THRESHOLD = 1000
 BRANCH_ACCUMULATION_THRESHOLD = 1000
 MIN_ACCUMULATION_KM2 = 0.5
 
@@ -30,13 +30,16 @@ MIN_ACCUMULATION_KM2 = 0.5
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 PIXEL_PLACEMENT_MODE = "equidistant"
-MAX_INTERMEDIATE_PIXELS = 2
+MAX_INTERMEDIATE_PIXELS = 1
 INTERMEDIATE_SPACING_METERS = 600.0
 
+with rasterio.open(dem_path) as src:
+    dem = src.read(1, out_dtype='float32')
+    profile = src.profile
 
 # --- Lettura dei dati di input ---
-grid = Grid.from_raster(os.path.join(DATA_FOLDER, DEM_FILENAME), data_name="grid data")
-dem = grid.read_raster(os.path.join(DATA_FOLDER, DEM_FILENAME), data_name="dem")
+grid = Grid.from_raster(os.path.join(dem_path), data_name="grid data")
+dem = grid.read_raster(os.path.join(dem_path), data_name="dem")
 
 flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem)
@@ -749,14 +752,25 @@ cell_area = abs(transform_view.a * transform_view.e)  # area cella (tip. m²)
 rng = np.random.default_rng(seed=42)  # fissiamo il seme per riproducibilità
 rain = rng.choice([0.0, rain_value], size=(T, H, W), p=[1-p_rain, p_rain])
 
+# --- Serie temporali di precipitazione mediate per catchment ---
+rain_flat = rain.reshape(T, -1)
+catchment_series = []
+for mask in catchments:
+    if mask is None or not mask.any():
+        catchment_series.append(np.full(T, np.nan, dtype=float))
+        continue
 
-#Precipitazioni medie per cella per sottobacino
-rain_time_mean = rain.mean(axis=0)  # media temporale per pixel 
+    mask_flat = mask.reshape(-1)
+    ts_mean = rain_flat[:, mask_flat].mean(axis=1)
+    catchment_series.append(ts_mean)
 
-
-means_mm = np.array([
-    float(rain_time_mean[mask].mean()) if mask.any() else np.nan
-    for mask in catchments])  #precipitazioni medie sul sottobacino
+if catchment_series:
+    rain_timeseries_catchments = np.vstack(catchment_series)
+    # Precipitazioni medie nel periodo simulato (media sui timestep)
+    means_mm = rain_timeseries_catchments.mean(axis=1)
+else:
+    rain_timeseries_catchments = np.empty((0, T), dtype=float)
+    means_mm = np.array([], dtype=float)
 
 
 #Frequenze precipitazioni
