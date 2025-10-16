@@ -20,11 +20,11 @@ from rasterio.transform import rowcol
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_nodata.tif"
-POUR_POINT = (8.710165, 52.197884)
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_fixed.tif"
+POUR_POINT = (480190.543, 5783087.394)
 SNAP_ACCUMULATION_THRESHOLD = 1000
-BRANCH_ACCUMULATION_THRESHOLD = 5000
-MIN_ACCUMULATION_KM2 = 0.5
+BRANCH_ACCUMULATION_THRESHOLD = 4000
+MIN_ACCUMULATION_KM2 = 10
 
 # --- Parametri selezione pixel ---
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
@@ -83,7 +83,7 @@ print("Pixel nel catchment:", n_pixels)
 # DEM 
 fig, ax = plt.subplots(figsize=(8, 6))
 fig.patch.set_alpha(0)
-plt.grid('on', zorder=3)
+plt.grid('off', zorder=3)
 im = ax.imshow(inflated_dem, extent=grid.extent, zorder=2, cmap='terrain')
 ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
            linewidth=1.8, zorder=4, label='Punto')
@@ -96,7 +96,7 @@ plt.tight_layout()
 #CATCH
 fig, ax = plt.subplots(figsize=(8, 6))
 fig.patch.set_alpha(0)
-plt.grid('on', zorder=3)
+plt.grid('off', zorder=3)
 
 # Visualizza il DEM come base
 im_dem = ax.imshow(inflated_dem, extent=grid.extent, zorder=2, cmap='terrain')
@@ -739,7 +739,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 35  # indice del sottobacino (0-based)
+i = 4  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
