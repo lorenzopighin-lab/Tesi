@@ -21,9 +21,9 @@ from rasterio.transform import rowcol
 # --- Configurazione generale ---
 
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_nodata.tif"
-POUR_POINT = (52.197884,	8.710165)
+POUR_POINT = (8.710165, 52.197884)
 SNAP_ACCUMULATION_THRESHOLD = 1000
-BRANCH_ACCUMULATION_THRESHOLD = 1000
+BRANCH_ACCUMULATION_THRESHOLD = 5000
 MIN_ACCUMULATION_KM2 = 0.5
 
 # --- Parametri selezione pixel ---
@@ -94,13 +94,30 @@ plt.ylabel('Latitude')
 plt.tight_layout()
 
 #CATCH
-fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+fig, ax = plt.subplots(figsize=(8, 6))
 fig.patch.set_alpha(0)
-plt.grid('on', zorder=0)
-im = ax.imshow(catch, extent=grid.extent, zorder=3)
+plt.grid('on', zorder=3)
+
+# Visualizza il DEM come base
+im_dem = ax.imshow(inflated_dem, extent=grid.extent, zorder=2, cmap='terrain')
+
+# Sovrappone il bacino in trasparenza
+catch_masked = np.ma.masked_where(~catch.astype(bool), catch)
+im_catch = ax.imshow(
+    catch_masked,
+    extent=grid.extent,
+    zorder=3,
+    cmap='Blues',
+    alpha=0.35,
+)
+
 ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
            linewidth=1.8, zorder=4, label='Punto')
-ax.set_title('DEM', size=14)
+
+plt.colorbar(im_dem, ax=ax, label='Elevation')
+plt.title('Catchment overlay', size=14)
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
 plt.tight_layout()
 plt.show()
 #%%branches
