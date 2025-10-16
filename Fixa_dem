@@ -2,6 +2,8 @@
 import math
 from pathlib import Path
 import rasterio
+from rasterio.crs import CRS
+from rasterio.transform import from_origin
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 
 def _auto_utm_epsg_from_bounds(crs, bounds):
@@ -18,12 +20,31 @@ def _auto_utm_epsg_from_bounds(crs, bounds):
     epsg = 32600 + zone if lat >= 0 else 32700 + zone
     return f"EPSG:{epsg}"
 
+def _parse_resolution(resolution):
+    """Normalizza il parametro di risoluzione restituendo una tupla (xres, yres)."""
+    if resolution is None:
+        return None
+    if isinstance(resolution, (tuple, list)):
+        if len(resolution) != 2:
+            raise ValueError("La risoluzione come sequenza deve avere due elementi (x, y)")
+        xres, yres = resolution
+    else:
+        xres = yres = resolution
+    try:
+        xres = float(xres)
+        yres = float(yres)
+    except Exception as exc:  # pragma: no cover - conversione difensiva
+        raise ValueError("La risoluzione deve essere numerica") from exc
+    if xres <= 0 or yres <= 0:
+        raise ValueError("La risoluzione deve essere positiva")
+    return xres, yres
+
 def prepare_dem(
     src_path,
     dst_path=None,
-    target_crs=None,       # es. "EPSG:25832"; se None → auto UTM (326xx/327xx) se input è in lat/lon
-    resolution=30,         # metri
-    nodata_value=-9999.0,  # NoData di uscita
+    target_crs= "EPSG:25832",        # es. "EPSG:25832"; se None → auto UTM (326xx/327xx) se input è in lat/lon
+    resolution=30,          # metri
+    nodata_value=-9999.0,   # NoData di uscita
     resampling="bilinear", # per DEM
 ):
     resampling_map = {"nearest": Resampling.nearest, "bilinear": Resampling.bilinear, "cubic": Resampling.cubic}
@@ -36,14 +57,31 @@ def prepare_dem(
         dst_path = Path(dst_path)
 
     with rasterio.open(src_path) as src:
+        src_crs = src.crs
         if target_crs is None:
-            auto_epsg = _auto_utm_epsg_from_bounds(src.crs, src.bounds)
-            target_crs = auto_epsg if auto_epsg is not None else src.crs
+           auto_epsg = _auto_utm_epsg_from_bounds(src_crs, src.bounds)
+           target_crs = auto_epsg if auto_epsg is not None else src_crs
+        if target_crs is None:
+            raise ValueError("Impossibile determinare un sistema di riferimento di destinazione")
+
+        target_crs = CRS.from_user_input(target_crs)
 
         transform, width, height = calculate_default_transform(
-            src.crs, target_crs, src.width, src.height, *src.bounds, resolution=resolution
+            src_crs, target_crs, src.width, src.height, *src.bounds, 
         )
-
+        
+        desired_res = _parse_resolution(resolution)
+        if desired_res is not None:
+            xres, yres = desired_res
+            left, top = transform * (0, 0)
+            right, bottom = transform * (width, height)
+            if not (right > left and top > bottom):
+                raise ValueError(
+                    "Trasformazione non valida calcolata durante la riproiezione: controllare i dati di input")
+                
+            width = max(1, int(math.ceil((right - left) / xres)))
+            height = max(1, int(math.ceil((top - bottom) / yres)))
+            transform = from_origin(left, top, xres, yres)
         profile = src.profile.copy()
         profile.update(
             driver="GTiff",
