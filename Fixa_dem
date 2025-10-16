@@ -1,0 +1,96 @@
+# prepare_dem.py
+import math
+from pathlib import Path
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+
+def _auto_utm_epsg_from_bounds(crs, bounds):
+    """Sceglie una EPSG UTM WGS84 (326xx/327xx) in base al centro del raster."""
+    try:
+        if crs is None or not crs.is_geographic:
+            return None
+    except Exception:
+        return None
+    xmin, ymin, xmax, ymax = bounds
+    lon = (xmin + xmax) / 2.0
+    lat = (ymin + ymax) / 2.0
+    zone = int(math.floor((lon + 180) / 6) + 1)
+    epsg = 32600 + zone if lat >= 0 else 32700 + zone
+    return f"EPSG:{epsg}"
+
+def prepare_dem(
+    src_path,
+    dst_path=None,
+    target_crs=None,       # es. "EPSG:25832"; se None → auto UTM (326xx/327xx) se input è in lat/lon
+    resolution=30,         # metri
+    nodata_value=-9999.0,  # NoData di uscita
+    resampling="bilinear", # per DEM
+):
+    resampling_map = {"nearest": Resampling.nearest, "bilinear": Resampling.bilinear, "cubic": Resampling.cubic}
+    rs = resampling_map.get(resampling, Resampling.bilinear)
+
+    src_path = Path(src_path)
+    if dst_path is None:
+        dst_path = src_path.with_name(src_path.stem + "_UTM30m_nodata.tif")
+    else:
+        dst_path = Path(dst_path)
+
+    with rasterio.open(src_path) as src:
+        if target_crs is None:
+            auto_epsg = _auto_utm_epsg_from_bounds(src.crs, src.bounds)
+            target_crs = auto_epsg if auto_epsg is not None else src.crs
+
+        transform, width, height = calculate_default_transform(
+            src.crs, target_crs, src.width, src.height, *src.bounds, resolution=resolution
+        )
+
+        profile = src.profile.copy()
+        profile.update(
+            driver="GTiff",
+            crs=target_crs,
+            transform=transform,
+            width=width,
+            height=height,
+            dtype="float32",
+            count=1,
+            compress="lzw",
+            nodata=nodata_value,
+            tiled=True,
+            blockxsize=256,
+            blockysize=256,
+        )
+
+        with rasterio.open(dst_path, "w", **profile) as dst:
+            reproject(
+                source=rasterio.band(src, 1),
+                destination=rasterio.band(dst, 1),
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=transform,
+                dst_crs=target_crs,
+                src_nodata=src.nodata,
+                dst_nodata=nodata_value,
+                resampling=rs,
+            )
+
+    with rasterio.open(dst_path) as chk:
+        ax = abs(chk.transform.a)
+        ay = abs(chk.transform.e)
+        print(f"[OK] Scritto: {dst_path}")
+        print(f"[INFO] CRS: {chk.crs}, pixel ~ ({ax:.3f} m, {ay:.3f} m), NoData={chk.nodata}")
+    return str(dst_path)
+
+if __name__ == "__main__":
+    # ===>>> QUI METTI IL TUO FILE DI INPUT <<<===
+    SRC = r"C:\Users\loren\Desktop\Tesi_magi\codes\data\DE12030.tif"
+
+    # (opzionale) percorso di output; se None, crea automaticamente *_UTM30m_nodata.tif accanto all’input
+    OUT = None  # es: r"C:\...\DEM_preparato.tif"
+
+    # Opzione 1: forzare un CRS metrico (consigliato in Italia/Germania Ovest)
+    dem_out = prepare_dem(SRC, dst_path=OUT, target_crs="EPSG:25832", resolution=30)
+
+    # Opzione 2 (alternativa): lasciare auto-selezione UTM WGS84 (commenta la riga sopra e scommenta questa)
+    # dem_out = prepare_dem(SRC, dst_path=OUT, target_crs=None, resolution=30)
+
+    print("Output:", dem_out)
