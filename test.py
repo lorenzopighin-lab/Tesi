@@ -20,8 +20,8 @@ from rasterio.transform import rowcol
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif"
-POUR_POINT = (52.197884,	8.710165)
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_nodata.tif"
+POUR_POINT = (8.710165 ,52.197884 )
 SNAP_ACCUMULATION_THRESHOLD = 1000
 BRANCH_ACCUMULATION_THRESHOLD = 4000
 MIN_ACCUMULATION_KM2 = 10
@@ -80,44 +80,66 @@ n_pixels = int(np.count_nonzero(catch))   # equivalente a int(catch.sum())
 print("Pixel nel catchment:", n_pixels)
 
 #%%%plots
-# DEM 
+# DEM
+inflated_dem_masked = np.ma.masked_invalid(inflated_dem)
+
 fig, ax = plt.subplots(figsize=(8, 6))
-fig.patch.set_alpha(0)
-plt.grid('off', zorder=3)
-im = ax.imshow(inflated_dem, extent=grid.extent, zorder=2, cmap='terrain')
-ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
-           linewidth=1.8, zorder=4, label='Punto')
-plt.colorbar(im, ax=ax, label='Elevation')
-plt.title('DEM', size=14)
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
+dem_im = ax.imshow(
+    inflated_dem_masked,
+    extent=grid.extent,
+    cmap='terrain',
+    origin='upper',
+)
+ax.scatter(
+    [x_snap],
+    [y_snap],
+    s=80,
+    facecolors='none',
+    edgecolors='red',
+    linewidth=1.8,
+    label='Punto',
+)
+ax.set_title('DEM', size=14)
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 
-#CATCH
+# Catchment outline over DEM
 fig, ax = plt.subplots(figsize=(8, 6))
-fig.patch.set_alpha(0)
-plt.grid('off', zorder=3)
-
-# Visualizza il DEM come base
-im_dem = ax.imshow(inflated_dem, extent=grid.extent, zorder=2, cmap='terrain')
-
-# Sovrappone il bacino in trasparenza
-catch_masked = np.ma.masked_where(~catch.astype(bool), catch)
-im_catch = ax.imshow(
-    catch_masked,
+dem_im = ax.imshow(
+    inflated_dem_masked,
     extent=grid.extent,
-    zorder=3,
-    cmap='Blues',
-    alpha=0.35,
+    cmap='terrain',
+    origin='upper',
 )
 
-ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
-           linewidth=1.8, zorder=4, label='Punto')
+# coordinate arrays for contour plotting
+x_coords = np.linspace(grid.extent[0], grid.extent[2], catch.shape[1])
+y_coords = np.linspace(grid.extent[3], grid.extent[1], catch.shape[0])
 
-plt.colorbar(im_dem, ax=ax, label='Elevation')
-plt.title('Catchment overlay', size=14)
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
+catch_bool = catch.astype(bool)
+ax.contour(
+    x_coords,
+    y_coords,
+    catch_bool,
+    levels=[0.5],
+    colors='dodgerblue',
+    linewidths=1.8,
+)
+ax.scatter(
+    [x_snap],
+    [y_snap],
+    s=80,
+    facecolors='none',
+    edgecolors='red',
+    linewidth=1.8,
+    label='Punto',
+)
+ax.set_title('Catchment Outline on DEM', size=14)
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 plt.show()
 #%%branches
@@ -798,6 +820,5 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
-
 
 
