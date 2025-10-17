@@ -16,7 +16,7 @@ import rasterio
 import seaborn as sns
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-
+import prepare_dem
 
 # --- Configurazione generale ---
 
@@ -834,5 +834,6 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
+
 
 
