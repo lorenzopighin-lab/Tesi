@@ -115,8 +115,8 @@ dem_im = ax.imshow(
 )
 
 # coordinate arrays for contour plotting
-x_coords = np.linspace(grid.extent[0], grid.extent[2], catch.shape[1])
-y_coords = np.linspace(grid.extent[3], grid.extent[1], catch.shape[0])
+x_coords = np.linspace(grid.extent[0], grid.extent[1], catch.shape[1])
+y_coords = np.linspace(grid.extent[3], grid.extent[2], catch.shape[0])
 
 catch_bool = catch.astype(bool)
 ax.contour(
@@ -126,6 +126,16 @@ ax.contour(
     levels=[0.5],
     colors='dodgerblue',
     linewidths=1.8,
+)
+
+# optional filled overlay of the catchment (transparent red)
+catch_overlay = np.ma.masked_where(~catch_bool, catch_bool)
+ax.imshow(
+    catch_overlay,
+    extent=grid.extent,
+    origin='upper',
+    cmap=colors.ListedColormap([(1.0, 0.0, 0.0, 0.35)]),
+    zorder=4,
 )
 ax.scatter(
     [x_snap],
