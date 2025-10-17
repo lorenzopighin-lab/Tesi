@@ -20,11 +20,11 @@ from rasterio.transform import rowcol
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030_nodata.tif"
-POUR_POINT = (8.710165 ,52.197884 )
+dem_path  = prepare_dem(r"C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif", target_crs="EPSG:25832", resolution=30)
+POUR_POINT = (480190.543, 5783087.395 )
 SNAP_ACCUMULATION_THRESHOLD = 1000
-BRANCH_ACCUMULATION_THRESHOLD = 4000
-MIN_ACCUMULATION_KM2 = 10
+BRANCH_ACCUMULATION_THRESHOLD = 5000
+MIN_ACCUMULATION_KM2 = 0
 
 # --- Parametri selezione pixel ---
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
@@ -40,6 +40,10 @@ with rasterio.open(dem_path) as src:
 # --- Lettura dei dati di input ---
 grid = Grid.from_raster(os.path.join(dem_path), data_name="grid data")
 dem = grid.read_raster(os.path.join(dem_path), data_name="dem")
+
+cell_size_x = abs(grid.affine.a)
+cell_size_y = abs(grid.affine.e)
+print("Cell size (m):", cell_size_x, cell_size_y)
 
 flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem)
