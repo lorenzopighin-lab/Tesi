@@ -1,0 +1,121 @@
+# prepare_dem_auto_res.py
+import math
+from pathlib import Path
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+
+def _auto_utm_epsg_from_bounds(crs, bounds):
+    # UTM WGS84 (326xx/327xx) dal centro se input è geografico
+    try:
+        if crs is None or not crs.is_geographic:
+            return None
+    except Exception:
+        return None
+    xmin, ymin, xmax, ymax = bounds
+    lon = (xmin + xmax) / 2.0
+    lat = (ymin + ymax) / 2.0
+    zone = int(math.floor((lon + 180) / 6) + 1)
+    epsg = 32600 + zone if lat >= 0 else 32700 + zone
+    return f"EPSG:{epsg}"
+
+def _resolution_from_source(src):
+    """Ritorna (xres_m, yres_m) dedotti dall'input."""
+    xres_src = abs(src.transform.a)
+    yres_src = abs(src.transform.e)
+    if src.crs and src.crs.is_projected:        # già in metri (o unità lineari)
+        return (xres_src, yres_src)
+    # geografico (gradi) -> metri alla latitudine centrale
+    xmin, ymin, xmax, ymax = src.bounds
+    lat_c = (ymin + ymax) / 2.0
+    phi = math.radians(lat_c)
+    m_per_deg_lat = 110_574.0                 # buone approssimazioni WGS84
+    m_per_deg_lon = 111_320.0 * math.cos(phi)
+    return (xres_src * m_per_deg_lon, yres_src * m_per_deg_lat)
+
+def prepare_dem(
+    src_path,
+    dst_path=None,
+    target_crs=None,          # es. "EPSG:25832"; se None → auto UTM (326xx/327xx) se input è in lat/lon
+    resolution=30,          # None = auto dalla sorgente; oppure numero (m) o tupla (xres, yres)
+    nodata_value=-9999.0,
+    resampling="bilinear",
+):
+    resampling_map = {"nearest": Resampling.nearest, "bilinear": Resampling.bilinear, "cubic": Resampling.cubic}
+    rs = resampling_map.get(resampling, Resampling.bilinear)
+
+    src_path = Path(src_path)
+    if dst_path is None:
+        dst_path = src_path.with_name(src_path.stem + "_proj_nodata.tif")
+    else:
+        dst_path = Path(dst_path)
+
+    with rasterio.open(src_path) as src:
+        # 1) CRS di destinazione
+        if target_crs is None:
+            auto_epsg = _auto_utm_epsg_from_bounds(src.crs, src.bounds)
+            target_crs = auto_epsg if auto_epsg is not None else src.crs
+
+        # 2) Risoluzione target
+        if resolution is None:
+            res_xy = _resolution_from_source(src)         # (xres_m, yres_m)
+        else:
+            # accetta int/float (stessa in x,y) o tupla (xres,yres)
+            if isinstance(resolution, (int, float)):
+                res_xy = (float(resolution), float(resolution))
+            else:
+                rx, ry = resolution
+                res_xy = (float(rx), float(ry))
+
+        # 3) Transform/dimensioni di uscita con risoluzione fissata
+        transform, width, height = calculate_default_transform(
+            src.crs, target_crs, src.width, src.height, *src.bounds, resolution=res_xy
+        )
+
+        profile = src.profile.copy()
+        profile.update(
+            driver="GTiff",
+            crs=target_crs,
+            transform=transform,
+            width=width,
+            height=height,
+            dtype="float32",
+            count=1,
+            compress="lzw",
+            nodata=nodata_value,
+            tiled=True,
+            blockxsize=256,
+            blockysize=256,
+        )
+
+        with rasterio.open(dst_path, "w", **profile) as dst:
+            reproject(
+                source=rasterio.band(src, 1),
+                destination=rasterio.band(dst, 1),
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=transform,
+                dst_crs=target_crs,
+                src_nodata=src.nodata,
+                dst_nodata=nodata_value,
+                resampling=rs,
+            )
+
+    with rasterio.open(dst_path) as chk:
+        ax = abs(chk.transform.a); ay = abs(chk.transform.e)
+        print(f"[OK] Scritto: {dst_path}")
+        print(f"[INFO] CRS: {chk.crs}, pixel ≈ ({ax:.3f} m, {ay:.3f} m), NoData={chk.nodata}")
+    return str(dst_path)
+
+if __name__ == "__main__":
+    # === Inserisci il tuo input qui ===
+    SRC = r"C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif"
+    # OUT = r"C:\percorso\DEM_preparato.tif"   # opzionale
+
+    # Caso 1: AUTO risoluzione (consigliato) + CRS scelto (ETRS89/UTM32N)
+    prepare_dem(SRC, dst_path=None, target_crs="EPSG:25832", resolution=30)
+
+    # Caso 2: AUTO tutto (sceglie UTM 326xx/327xx e risoluzione dall’input)
+    # prepare_dem(SRC, dst_path=None, target_crs=None, resolution=None)
+
+    # Caso 3: Forza una risoluzione specifica (es. 27 m)
+    # prepare_dem(SRC, dst_path=None, target_crs="EPSG:25833", resolution=27)
