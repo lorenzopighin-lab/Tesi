@@ -9,6 +9,7 @@ Created on Mon Oct  6 12:28:45 2025
 import os
 import math
 
+import array 
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,15 +17,15 @@ import rasterio
 import seaborn as sns
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-import prepare_dem
+
 
 # --- Configurazione generale ---
 
-dem_path  = prepare_dem(r"C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif", target_crs="EPSG:25832", resolution=30)
-POUR_POINT = (480190.543, 5783087.395 )
-SNAP_ACCUMULATION_THRESHOLD = 1000
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960_proj_nodata.tif"
+POUR_POINT = array.array('f', [5400250.582, 683939.746]) 
+SNAP_ACCUMULATION_THRESHOLD = 100000
 BRANCH_ACCUMULATION_THRESHOLD = 5000
-MIN_ACCUMULATION_KM2 = 0
+MIN_ACCUMULATION_KM2 = 10
 
 # --- Parametri selezione pixel ---
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
@@ -41,10 +42,6 @@ with rasterio.open(dem_path) as src:
 grid = Grid.from_raster(os.path.join(dem_path), data_name="grid data")
 dem = grid.read_raster(os.path.join(dem_path), data_name="dem")
 
-cell_size_x = abs(grid.affine.a)
-cell_size_y = abs(grid.affine.e)
-print("Cell size (m):", cell_size_x, cell_size_y)
-
 flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem)
 fdir = grid.flowdir(inflated_dem)
@@ -54,9 +51,7 @@ acc = grid.accumulation(fdir)
 
 # Aggancia il punto di chiusura sul pixel con accumulo sufficiente.
 x_snap, y_snap = grid.snap_to_mask(
-    acc > SNAP_ACCUMULATION_THRESHOLD,
-    POUR_POINT,
-)
+    acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT,)
 
 
 # --- Visualizzazione accumulo di flusso e punto di chiusura ---
@@ -834,6 +829,5 @@ freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
 freq_catch = np.array([
     float(freq_pixel[mask].mean()) if mask.any() else np.nan
     for mask in catchments])
-
 
 
