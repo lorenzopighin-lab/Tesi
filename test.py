@@ -28,6 +28,14 @@ SNAP_ACCUMULATION_THRESHOLD = 100000
 BRANCH_ACCUMULATION_THRESHOLD = 5000
 MIN_ACCUMULATION_KM2 = 10
 
+# --- Parametri dimensionali ---
+# Il DEM è espresso in coordinate geografiche ma sappiamo che le celle
+# rappresentano quadrati da 30 m di lato.  Per le operazioni che richiedono
+# distanze o superfici in metri utilizziamo quindi questo fattore di
+# conversione esplicito.
+PIXEL_SIZE_METERS = 30.0
+PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
+
 # --- Parametri selezione pixel ---
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
@@ -207,9 +215,9 @@ branches_raster = rasterio.features.rasterize(
 acc_view = grid.view(acc)              # acc calcolato prima: acc = grid.accumulation(fdir)
 H, W = acc_view.shape
 
-cell_area_m2 = abs(grid.affine.a * grid.affine.e)
-cell_size_x = abs(grid.affine.a)
-cell_size_y = abs(grid.affine.e)
+cell_area_m2 = PIXEL_AREA_M2
+cell_size_x = PIXEL_SIZE_METERS
+cell_size_y = PIXEL_SIZE_METERS
 thr_cells = math.ceil((MIN_ACCUMULATION_KM2 * 1e6) / cell_area_m2)
 
 # Seleziona i pixel con accumulo sufficiente per essere considerati candidati.
@@ -795,8 +803,7 @@ value_unit = "mm"         # solo informativo per l'output/etichetta
 
 # --- Griglia: usiamo la view clippata (coerente coi catchments) ---
 H, W = fdir_view.shape
-cell_area = abs(transform_view.a * transform_view.e)  # area cella (tip. m²)
-
+cell_area = PIXEL_AREA_M2  # area cella in metri quadrati
 # --- 1) Genera serie di pioggia 0/10 di shape (T, H, W) ---
 rng = np.random.default_rng(seed=42)  # fissiamo il seme per riproducibilità
 rain = rng.choice([0.0, rain_value], size=(T, H, W), p=[1-p_rain, p_rain])
