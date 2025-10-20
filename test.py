@@ -19,10 +19,11 @@ from pysheds.grid import Grid
 from rasterio.transform import rowcol
 
 
+
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960_proj_nodata.tif"
-POUR_POINT = array.array('f', [5400250.582, 683939.746]) 
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960.tif"
+POUR_POINT = array.array('f', [11.501329, 48.728112	]) 
 SNAP_ACCUMULATION_THRESHOLD = 100000
 BRANCH_ACCUMULATION_THRESHOLD = 5000
 MIN_ACCUMULATION_KM2 = 10
