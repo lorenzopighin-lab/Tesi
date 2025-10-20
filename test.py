@@ -43,19 +43,51 @@ PIXEL_PLACEMENT_MODE = "equidistant"
 MAX_INTERMEDIATE_PIXELS = 1
 INTERMEDIATE_SPACING_METERS = 600.0
 
+def replace_nodata_with_value(data, nodata_value, replacement=-9999.0):
+    """Return a float32 array where nodata values are replaced."""
+
+    if isinstance(data, np.ma.MaskedArray):
+        mask = np.ma.getmaskarray(data)
+        filled = data.filled(np.nan if nodata_value is None else nodata_value)
+    else:
+        mask = None
+        filled = data
+
+    result = np.array(filled, dtype="float32", copy=True)
+
+    if mask is not None and mask.any():
+        result[mask] = replacement
+
+    if nodata_value is not None and not np.isnan(nodata_value):
+        nodata_mask = result == nodata_value
+    else:
+        nodata_mask = ~np.isfinite(result)
+
+    if nodata_mask.any():
+        result[nodata_mask] = replacement
+
+    return result
+
+
 with rasterio.open(dem_path) as src:
-    dem = src.read(1, out_dtype='float32')
+    original_nodata = src.nodata
+    dem = replace_nodata_with_value(src.read(1, out_dtype="float32"), original_nodata)
     profile = src.profile
+    profile.update(nodata=-9999.0)
 
 # --- Lettura dei dati di input ---
 grid = Grid.from_raster(os.path.join(dem_path), data_name="grid data")
+if hasattr(grid, "nodata"):
+    grid.nodata = -9999.0
+
 dem = grid.read_raster(os.path.join(dem_path), data_name="dem")
+dem = replace_nodata_with_value(dem, original_nodata)
 
 flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem)
 fdir = grid.flowdir(inflated_dem)
 
-# Calcola l'accumulo di flusso a valle di ogni cella.
+#%% acc e catchment
 acc = grid.accumulation(fdir)
 
 # Aggancia il punto di chiusura sul pixel con accumulo sufficiente.
