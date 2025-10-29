@@ -143,6 +143,13 @@ def krige_one_day(
     ys = station_xy.loc[st_ids, "y"].to_numpy()
     zs = day_vals.to_numpy()
 
+ # Se tutti i valori disponibili sono identici, il fit automatico del variogramma
+    # di PyKrige fallisce (semivarianza nulla -> bound sovrapposti). In questi casi
+    # possiamo restituire direttamente un campo costante evitando di invocare il solver.
+    if zs.size and np.allclose(zs, zs[0], atol=1e-10, rtol=0):
+        const_field = np.full((len(gridy), len(gridx)), zs[0], dtype=float)
+        return const_field, np.zeros_like(const_field)
+
     OK = OrdinaryKriging(
         xs,
         ys,
