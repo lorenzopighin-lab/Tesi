@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""
+Kriging delle precipitazioni giornaliere con PyKrige su griglia allineata al DTM (30 m).
+
+Prerequisiti:
+- pykrige, numpy, pandas, rasterio, pyproj, tqdm (opzionale)
+
+Struttura attesa dati:
+1) Cartella con 28 file CSV, uno per stazione, con colonne almeno: ["date", "precipitation_mean"].
+   - La colonna "date" deve essere interpretabile da pandas.to_datetime.
+   - Il nome file (senza estensione) viene usato come station_id (adatta se necessario).
+2) File CSV metadati stazioni con colonne: [station_id, lon, lat] (EPSG:4326).
+3) Un DTM/DSM/DEM GeoTIFF (30 m) che definisce estensione, risoluzione e CRS della griglia output.
+
+Output:
+- Una GeoTIFF per ogni data (una banda), con il kriging della precipitazione; stessa georeferenziazione del DTM.
+- Facoltativo: puoi adattare per scrivere un multi-banda o NetCDF/Xarray.
+
+Note importanti:
+- Il kriging lavora meglio in coordinate proiettate (metri). Qui proiettiamo le stazioni nel CRS del DTM.
+- I parametri del variogramma sono lasciati automatici (fit interno). Per lavori seri, fornisci parametri espliciti.
+"""
+from __future__ import annotations
+
+import os
+import glob
+from pathlib import Path
+from typing import Tuple, Dict, List
+
+import numpy as np
+import pandas as pd
+import rasterio
+from rasterio.transform import Affine
+from pyproj import Transformer
+
+from pykrige.ok import OrdinaryKriging
+
+try:
+    from tqdm import tqdm
+except Exception:  # tqdm è opzionale
+    def tqdm(x, **kwargs):
+        return x
+
+# ==============================
+# Configurazione (MODIFICA QUI)
+# ==============================
+CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")              # cartella con i 28 csv
+STATION_META = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")    # station_id,lon,lat (EPSG:4326)
+DTM_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif")              # raster di riferimento (griglia/CRS)
+OUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out")
+OUT_PREFIX = "precip_"                         # prefisso file di output
+
+# Impostazioni kriging
+VARIOGRAM_MODEL = "exponential"                  # "spherical","exponential","gaussian","power","linear"
+VARIOGRAM_PARAMS = None                        # None -> fit automatico; oppure dict/tuple con parametri
+N_LAGS = 6                                     # usato dal fit automatico
+ENABLE_STATS = False
+
+# Filtro dati (facoltativo)
+MIN_STATIONS_PER_DAY = 5                       # esegui kriging solo se >= N stazioni disponibili quel giorno
+FILL_MISSING = False                            # se True, riempi buchi giornalieri per stazione con NaN (reindex)
+
+# ==============================
+# Utility
+# ==============================
+
+def read_station_metadata(meta_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(meta_path)
+    required = {"station_id", "lon", "lat"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"Il file metadata deve contenere colonne {required}. Trovate: {set(df.columns)}")
+    return df
+
+
+def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
+    """Legge tutti i CSV in cartella e ritorna un DataFrame long: [date, station_id, precipitation_mean]."""
+    rows = []
+    for fp in sorted(glob.glob(str(csv_dir / "*.csv"))):
+        station_id = Path(fp).stem  # adatta qui se il mapping station_id <- file differisce
+        df = pd.read_csv(fp)
+        if "date" not in df.columns or "precipitation_mean" not in df.columns:
+            raise ValueError(f"'{fp}' deve contenere colonne 'date' e 'precipitation_mean'.")
+        df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_convert(None)
+        df = df[["date", "precipitation_mean"]].copy()
+        df["station_id"] = station_id
+        rows.append(df)
+    all_df = pd.concat(rows, ignore_index=True)
+    return all_df
+
+
+def pivot_timeseries(long_df: pd.DataFrame, fill_missing: bool = False) -> pd.DataFrame:
+    """Pivota a matrice tempo x stazione. Indice datetime giornaliero, colonne station_id."""
+    wide = long_df.pivot_table(index="date", columns="station_id", values="precipitation_mean", aggfunc="mean")
+    wide = wide.sort_index()
+    if fill_missing:
+        # Frequenza giornaliera continua
+        full_idx = pd.date_range(wide.index.min().normalize(), wide.index.max().normalize(), freq="D")
+        wide = wide.reindex(full_idx)
+    return wide
+
+
+def grid_from_dtm(dtm_path: Path) -> Tuple[np.ndarray, np.ndarray, Affine, dict, str]:
+    """Estrae assi x/y (centri pixel) dal DTM, insieme a transform/profile/CRS."""
+    with rasterio.open(dtm_path) as src:
+        transform: Affine = src.transform
+        width, height = src.width, src.height
+        profile = src.profile
+        crs = src.crs.to_string() if src.crs else None
+
+    # Coordinate centri pixel
+    x0, y0 = transform * (0, 0)
+    dx, dy = transform.a, transform.e  # dy tipicamente negativo (north-up)
+
+    xs = x0 + dx * (np.arange(width) + 0.5)
+    ys = y0 + dy * (np.arange(height) + 0.5)
+
+    # PyKrige 'grid' richiede assi crescenti: adeguiamo y se necessario
+    y_ascending = ys if np.all(np.diff(ys) > 0) else ys[::-1]
+    return xs, y_ascending, transform, profile, crs
+
+
+def project_lonlat_to_crs(lon: np.ndarray, lat: np.ndarray, dst_crs: str) -> Tuple[np.ndarray, np.ndarray]:
+    transformer = Transformer.from_crs("EPSG:4326", dst_crs, always_xy=True)
+    x, y = transformer.transform(lon, lat)
+    return np.asarray(x), np.asarray(y)
+
+
+def krige_one_day(
+    date: pd.Timestamp,
+    values_by_station: pd.Series,
+    station_xy: pd.DataFrame,
+    gridx: np.ndarray,
+    gridy: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Esegue Ordinary Kriging per un singolo giorno su griglia (gridx, gridy)."""
+    # Stazioni disponibili quel giorno
+    day_vals = values_by_station.dropna()
+    st_ids = day_vals.index.tolist()
+    if len(st_ids) < MIN_STATIONS_PER_DAY:
+        raise RuntimeError(f"{date.date()}: stazioni disponibili {len(st_ids)} < {MIN_STATIONS_PER_DAY}")
+
+    xs = station_xy.loc[st_ids, "x"].to_numpy()
+    ys = station_xy.loc[st_ids, "y"].to_numpy()
+    zs = day_vals.to_numpy()
+
+    OK = OrdinaryKriging(
+        xs,
+        ys,
+        zs,
+        variogram_model=VARIOGRAM_MODEL,
+        variogram_parameters=VARIOGRAM_PARAMS,
+        nlags=N_LAGS,
+        enable_statistics=ENABLE_STATS,
+        coordinates_type="euclidean",  # perché lavoriamo nel CRS del DTM (metri)
+    )
+
+    z_pred, z_var = OK.execute("grid", gridx, gridy)
+    return np.asarray(z_pred), np.asarray(z_var)
+
+
+def save_geotiff(out_path: Path, data2d: np.ndarray, profile: dict, transform: Affine):
+    prof = profile.copy()
+    prof.update(
+        dtype="float32",
+        count=1,
+        compress="deflate",
+        predictor=2,
+        tiled=True,
+        blockxsize=min(512, prof.get("width", 512)),
+        blockysize=min(512, prof.get("height", 512)),
+        nodata=-9999.0,
+        transform=transform,
+    )
+    arr = data2d.astype("float32", copy=False)
+    # sostituisci eventuali NaN
+    arr = np.where(np.isfinite(arr), arr, prof["nodata"])
+    with rasterio.open(out_path, "w", **prof) as dst:
+        dst.write(arr, 1)
+
+
+# ==============================
+# Main workflow
+# ==============================
+
+def main():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1) Dati stazioni
+    meta = read_station_metadata(STATION_META)
+    ts_long = read_station_csvs(CSV_DIR)
+
+    # 2) Tabella wide: righe=date, colonne=station_id
+    ts_wide = pivot_timeseries(ts_long, fill_missing=FILL_MISSING)
+
+    # 3) Griglia dal DTM
+    gridx, gridy, transform, profile, dtm_crs = grid_from_dtm(DTM_PATH)
+    if dtm_crs is None:
+        raise ValueError("Il DTM deve avere un CRS definito.")
+
+    # 4) Proiezione stazioni nel CRS del DTM
+    #    (assume meta lon/lat in EPSG:4326)
+    x, y = project_lonlat_to_crs(meta["lon"].to_numpy(), meta["lat"].to_numpy(), dtm_crs)
+    meta = meta.set_index("station_id").copy()
+    meta["x"], meta["y"] = x, y
+
+    # 5) Allinea elenco stazioni tra metadati e serie
+    common = meta.index.intersection(ts_wide.columns)
+    if len(common) < MIN_STATIONS_PER_DAY:
+        raise ValueError("Troppe poche stazioni in comune tra metadati e CSV.")
+    ts_wide = ts_wide[common]
+    station_xy = meta.loc[common, ["x", "y"]]
+
+    # 6) Loop giornaliero
+    dates = ts_wide.index
+    print(f"Date totali: {len(dates)}; stazioni: {len(common)}; griglia: {len(gridy)}x{len(gridx)}")
+
+    # Nota: gridy passato a PyKrige è ascendente; per salvare GeoTIFF serve l'ordine del DTM (top->bottom).
+    # Se il DTM ha dy negativo (classico north-up), ys originali erano decrescenti e abbiamo invertito per PyKrige.
+    # Per scrivere, invertiamo di nuovo.
+    dtm_dy = transform.e
+    flip_y_for_write = dtm_dy < 0 and (np.diff(gridy)[0] > 0)
+
+    for date in tqdm(dates, desc="Kriging giornaliero"):
+        try:
+            z_pred, _ = krige_one_day(date, ts_wide.loc[date], station_xy, gridx, gridy)
+            if flip_y_for_write:
+                z_pred = z_pred[::-1, :]  # torna all'ordine a righe del DTM
+            out_name = f"{OUT_PREFIX}{pd.Timestamp(date).strftime('%Y%m%d')}.tif"
+            save_geotiff(OUT_DIR / out_name, z_pred, profile, transform)
+        except RuntimeError as e:
+            # troppo poche stazioni o altri problemi: salta il giorno
+            print(f"SKIP {date.date()}: {e}")
+
+    print("Fatto.")
+
+
+if __name__ == "__main__":
+    main()
