@@ -14,9 +14,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
 import seaborn as sns
+from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-
+from krig_2 import compute_catchment_precipitation_series
 
 
 # --- Configurazione generale ---
@@ -39,8 +40,18 @@ PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 PIXEL_PLACEMENT_MODE = "equidistant"
-MAX_INTERMEDIATE_PIXELS = 1
+MAX_INTERMEDIATE_PIXELS = 0
 INTERMEDIATE_SPACING_METERS = 600.0
+
+# --- Configurazione piogge medie per catchment ---
+PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")
+PRECIP_DATE_START = "2000-01-01"
+PRECIP_DATE_END = "2020-12-31"
+PRECIP_BUFFER_METERS = 20000.0
+PRECIP_MIN_STATIONS = 3
+PRECIP_MAX_STATIONS = 12
+CATCHMENT_SERIES_OUTPUT = Path("catchment_precipitation_table.csv")
 
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
@@ -505,6 +516,7 @@ labels = np.zeros_like(fdir_view, dtype=np.int32)  # raster etichettato (facolta
 expected_areas = []
 catchment_points = []
 failed_points = []
+catchment_ids = []
 
 os.makedirs("catchments_tif", exist_ok=True)
 
@@ -621,16 +633,20 @@ for point in selected_points:
             f"Avviso: deviazione area {deviation*100:.1f}% per il seed in {x_snap:.2f}, {y_snap:.2f}"
         )
 
+    label_id = len(catchments) + 1
+    catchment_id = f"catchment_{label_id:03d}"
+        
     catchments.append(mask)
+    catchment_ids.append(catchment_id)
     areas.append(actual_area)
     expected_areas.append(expected_area)
 
     point["expected_area"] = float(expected_area)
     point["catchment_area"] = float(actual_area)
     point["deviation"] = float(deviation)
+    catchment_ids.append(catchment_id)
     catchment_points.append(point.copy())
 
-    label_id = len(catchments)
     labels[mask & (labels == 0)] = label_id
 
 selected_mask = _build_selected_mask(catchment_points)
@@ -793,48 +809,39 @@ if catchments:
 else:
     print("Nessun catchment valido da plottare.")
 
-#%% Stats piogge
-# --- Parametri simulazione pioggia ---
-T = 200                   # numero di timestep (es. 200 giorni)
-p_rain = 0.30             # probabilità che un pixel piova (metti quello che vuoi)
-rain_value = 10.0         # valore quando piove (es. 10 mm)
-value_unit = "mm"         # solo informativo per l'output/etichetta
+#%% Serie di precipitazione media per catchment
+if catchments:
+    crs_obj = profile.get("crs") if isinstance(profile, dict) else None
+    dtm_crs = None
+    if crs_obj is not None:
+        dtm_crs = crs_obj.to_string() if hasattr(crs_obj, "to_string") else str(crs_obj)
 
-# --- Griglia: usiamo la view clippata (coerente coi catchments) ---
-H, W = fdir_view.shape
-cell_area = PIXEL_AREA_M2  # area cella in metri quadrati
-# --- 1) Genera serie di pioggia 0/10 di shape (T, H, W) ---
-rng = np.random.default_rng(seed=42)  # fissiamo il seme per riproducibilità
-rain = rng.choice([0.0, rain_value], size=(T, H, W), p=[1-p_rain, p_rain])
-
-# --- Serie temporali di precipitazione mediate per catchment ---
-rain_flat = rain.reshape(T, -1)
-catchment_series = []
-for mask in catchments:
-    if mask is None or not mask.any():
-        catchment_series.append(np.full(T, np.nan, dtype=float))
-        continue
-
-    mask_flat = mask.reshape(-1)
-    ts_mean = rain_flat[:, mask_flat].mean(axis=1)
-    catchment_series.append(ts_mean)
-
-if catchment_series:
-    rain_timeseries_catchments = np.vstack(catchment_series)
-    # Precipitazioni medie nel periodo simulato (media sui timestep)
-    means_mm = rain_timeseries_catchments.mean(axis=1)
+    print("Avvio calcolo serie di precipitazione media per catchment tramite kriging...")
+    try:
+        precip_table = compute_catchment_precipitation_series(
+            catchment_masks=catchments,
+            transform=grid.affine,
+            catchment_ids=catchment_ids,
+            csv_dir=PRECIP_CSV_DIR,
+            station_meta=STATION_META_PATH,
+            dtm_crs=dtm_crs,
+            start_date=PRECIP_DATE_START,
+            end_date=PRECIP_DATE_END,
+            buffer_distance=PRECIP_BUFFER_METERS,
+            min_stations=PRECIP_MIN_STATIONS,
+            max_stations=PRECIP_MAX_STATIONS,
+        )
+        if not precip_table.empty:
+            precip_table.to_csv(CATCHMENT_SERIES_OUTPUT, index=False)
+            print(
+                "Tabella precipitazioni media catchment salvata in "
+                f"{CATCHMENT_SERIES_OUTPUT.resolve()}"
+            )
+        else:
+            print(
+                "Nessuna serie di precipitazione calcolata: verificare dati di input o catchments."
+            )
+    except Exception as exc:
+        print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
 else:
-    rain_timeseries_catchments = np.empty((0, T), dtype=float)
-    means_mm = np.array([], dtype=float)
-
-
-#Frequenze precipitazioni
-rain_events = (rain > 0)                 # True/False: piove?
-freq_pixel = rain_events.mean(axis=0)    # media su T -> frequenza
-
-# 2) frequenza media per sottobacino -> vettore (N_catchments,)
-freq_catch = np.array([
-    float(freq_pixel[mask].mean()) if mask.any() else np.nan
-    for mask in catchments])
-
-
+    print("Nessun catchment disponibile per il calcolo delle precipitazioni medie.")
