@@ -24,13 +24,14 @@ from __future__ import annotations
 
 import os
 import glob
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple, Dict, List
-
+from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.transform import Affine
+from rasterio.transform import rowcol
 from pyproj import Transformer
 
 from pykrige.ok import OrdinaryKriging
@@ -59,6 +60,14 @@ ENABLE_STATS = False
 # Filtro dati (facoltativo)
 MIN_STATIONS_PER_DAY = 5                       # esegui kriging solo se >= N stazioni disponibili quel giorno
 FILL_MISSING = False                            # se True, riempi buchi giornalieri per stazione con NaN (reindex)
+
+# Parametri default per il calcolo della serie media per catchment
+BUFFER_DISTANCE_METERS = 20000.0
+MAX_STATIONS_PER_CATCHMENT: Optional[int] = 12
+MIN_STATIONS_PER_CATCHMENT = 3
+WEIGHT_DISTANCE_EPS = 100.0
+INSIDE_WEIGHT_BONUS = 1.5
+
 
 # ==============================
 # Utility
@@ -183,6 +192,300 @@ def save_geotiff(out_path: Path, data2d: np.ndarray, profile: dict, transform: A
     arr = np.where(np.isfinite(arr), arr, prof["nodata"])
     with rasterio.open(out_path, "w", **prof) as dst:
         dst.write(arr, 1)
+
+
+# ==============================
+# Catchment helper structures
+# ==============================
+
+
+@dataclass
+class CatchmentContext:
+    catchment_id: str
+    mask: np.ndarray
+    cell_coords: np.ndarray
+    boundary_coords: np.ndarray
+    station_ids: List[str]
+    station_xy: np.ndarray
+    station_weights: np.ndarray
+
+
+def _mask_to_coords(mask: np.ndarray, transform: Affine) -> np.ndarray:
+    rows, cols = np.nonzero(mask)
+    if rows.size == 0:
+        return np.empty((0, 2), dtype=float)
+    xs, ys = rasterio.transform.xy(transform, rows, cols, offset="center")
+    return np.column_stack([np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)])
+
+
+def _compute_boundary_coords(mask: np.ndarray, transform: Affine) -> np.ndarray:
+    if mask is None or not mask.any():
+        return np.empty((0, 2), dtype=float)
+    h, w = mask.shape
+    boundary = np.zeros_like(mask, dtype=bool)
+    rows, cols = np.nonzero(mask)
+    for r, c in zip(rows, cols):
+        r0 = max(r - 1, 0)
+        r1 = min(r + 2, h)
+        c0 = max(c - 1, 0)
+        c1 = min(c + 2, w)
+        if not mask[r0:r1, c0:c1].all():
+            boundary[r, c] = True
+    return _mask_to_coords(boundary, transform)
+
+
+def _distance_to_coords(point_xy: Sequence[float], coords: np.ndarray) -> float:
+    if coords.size == 0:
+        return float("inf")
+    diffs = coords - np.asarray(point_xy, dtype=float)
+    dists = np.hypot(diffs[:, 0], diffs[:, 1])
+    return float(dists.min())
+
+
+def _station_inside_mask(point_xy: Sequence[float], transform: Affine, mask: np.ndarray) -> bool:
+    try:
+        row, col = rowcol(transform, point_xy[0], point_xy[1])
+    except Exception:
+        return False
+    h, w = mask.shape
+    if 0 <= row < h and 0 <= col < w:
+        return bool(mask[row, col])
+    return False
+
+
+def _prepare_catchment_contexts(
+    catchment_masks: Sequence[np.ndarray],
+    transform: Affine,
+    station_xy: pd.DataFrame,
+    catchment_ids: Optional[Sequence[str]] = None,
+    buffer_distance: float = BUFFER_DISTANCE_METERS,
+    max_stations: Optional[int] = MAX_STATIONS_PER_CATCHMENT,
+    weight_eps: float = WEIGHT_DISTANCE_EPS,
+    inside_bonus: float = INSIDE_WEIGHT_BONUS,
+) -> Tuple[Dict[str, CatchmentContext], List[str]]:
+    contexts: Dict[str, CatchmentContext] = {}
+    missing: List[str] = []
+
+    for idx, mask in enumerate(catchment_masks):
+        catchment_id = (
+            catchment_ids[idx]
+            if catchment_ids is not None and idx < len(catchment_ids)
+            else f"catchment_{idx + 1:03d}"
+        )
+
+        if mask is None or not np.any(mask):
+            missing.append(catchment_id)
+            continue
+
+        cell_coords = _mask_to_coords(mask, transform)
+        if cell_coords.size == 0:
+            missing.append(catchment_id)
+            continue
+
+        boundary_coords = _compute_boundary_coords(mask, transform)
+
+        station_candidates = []
+        for station_id, row in station_xy.iterrows():
+            point_xy = (row["x"], row["y"])
+            dist_center = _distance_to_coords(point_xy, cell_coords)
+            if not np.isfinite(dist_center) or dist_center > buffer_distance:
+                continue
+
+            dist_boundary = _distance_to_coords(point_xy, boundary_coords)
+            if not np.isfinite(dist_boundary):
+                dist_boundary = dist_center
+
+            weight = 1.0 / (dist_boundary + weight_eps)
+            if _station_inside_mask(point_xy, transform, mask):
+                weight *= inside_bonus
+
+            station_candidates.append((station_id, point_xy, weight))
+
+        if not station_candidates:
+            missing.append(catchment_id)
+            continue
+
+        station_candidates.sort(key=lambda item: item[2], reverse=True)
+        if max_stations is not None:
+            station_candidates = station_candidates[:max_stations]
+
+        station_ids = [item[0] for item in station_candidates]
+        coords = np.asarray([item[1] for item in station_candidates], dtype=float)
+        weights = np.asarray([item[2] for item in station_candidates], dtype=float)
+        if weights.sum() > 0:
+            weights = weights / weights.sum()
+
+        contexts[catchment_id] = CatchmentContext(
+            catchment_id=catchment_id,
+            mask=np.asarray(mask, dtype=bool),
+            cell_coords=cell_coords,
+            boundary_coords=boundary_coords,
+            station_ids=station_ids,
+            station_xy=coords,
+            station_weights=weights,
+        )
+
+    return contexts, missing
+
+
+def _krige_catchment_day(
+    date: pd.Timestamp,
+    day_values: pd.Series,
+    context: CatchmentContext,
+    variogram_model: str,
+    variogram_params,
+    nlags: int,
+    min_stations: int,
+) -> float:
+    if context.cell_coords.size == 0:
+        return float("nan")
+
+    values = day_values.reindex(context.station_ids)
+    mask_valid = values.notna().to_numpy()
+    if mask_valid.sum() < max(1, min_stations):
+        return float("nan")
+
+    xs = context.station_xy[mask_valid, 0]
+    ys = context.station_xy[mask_valid, 1]
+    zs = values.to_numpy()[mask_valid]
+
+    if zs.size == 0:
+        return float("nan")
+
+    if np.allclose(zs, zs[0], atol=1e-10, rtol=0):
+        return float(zs[0])
+
+    try:
+        OK = OrdinaryKriging(
+            xs,
+            ys,
+            zs,
+            variogram_model=variogram_model,
+            variogram_parameters=variogram_params,
+            nlags=nlags,
+            enable_statistics=ENABLE_STATS,
+            coordinates_type="euclidean",
+        )
+
+        preds, _ = OK.execute(
+            "points",
+            context.cell_coords[:, 0],
+            context.cell_coords[:, 1],
+        )
+        preds = np.asarray(preds)
+        if np.ma.isMaskedArray(preds):
+            preds = preds.filled(np.nan)
+        if preds.size == 0:
+            return float("nan")
+        return float(np.nanmean(preds))
+    except Exception:
+        weights = context.station_weights[mask_valid]
+        if weights.size == 0 or not np.isfinite(weights).any():
+            return float(np.nan)
+        if weights.sum() > 0:
+            weights = weights / weights.sum()
+        return float(np.dot(weights, zs))
+
+
+def compute_catchment_precipitation_series(
+    catchment_masks: Sequence[np.ndarray],
+    transform: Affine,
+    catchment_ids: Optional[Sequence[str]] = None,
+    csv_dir: Path = CSV_DIR,
+    station_meta: Path = STATION_META,
+    dtm_crs: Optional[str] = None,
+    start_date: str = "2000-01-01",
+    end_date: str = "2020-12-31",
+    buffer_distance: float = BUFFER_DISTANCE_METERS,
+    min_stations: int = MIN_STATIONS_PER_CATCHMENT,
+    max_stations: Optional[int] = MAX_STATIONS_PER_CATCHMENT,
+    weight_eps: float = WEIGHT_DISTANCE_EPS,
+    inside_bonus: float = INSIDE_WEIGHT_BONUS,
+    fill_missing: bool = FILL_MISSING,
+    variogram_model: str = VARIOGRAM_MODEL,
+    variogram_params=VARIOGRAM_PARAMS,
+    nlags: int = N_LAGS,
+) -> pd.DataFrame:
+    if not catchment_masks:
+        return pd.DataFrame(columns=["date"])
+
+    csv_dir = Path(csv_dir)
+    station_meta = Path(station_meta)
+
+    meta = read_station_metadata(station_meta)
+    ts_long = read_station_csvs(csv_dir)
+    ts_wide = pivot_timeseries(ts_long, fill_missing=fill_missing)
+
+    date_index = pd.date_range(start=start_date, end=end_date, freq="D")
+    ts_wide = ts_wide.reindex(date_index)
+
+    if dtm_crs is None:
+        _, _, _, _, dtm_crs = grid_from_dtm(DTM_PATH)
+    if dtm_crs is None:
+        raise ValueError("Il DTM deve avere un CRS definito per proiettare le stazioni.")
+
+    x, y = project_lonlat_to_crs(meta["lon"].to_numpy(), meta["lat"].to_numpy(), dtm_crs)
+    meta = meta.set_index("station_id").copy()
+    meta["x"], meta["y"] = x, y
+
+    common = meta.index.intersection(ts_wide.columns)
+    if common.empty:
+        df = pd.DataFrame(index=date_index)
+        df.index.name = "date"
+        return df.reset_index()
+
+    ts_wide = ts_wide[common]
+    station_xy = meta.loc[common, ["x", "y"]]
+
+    contexts, missing = _prepare_catchment_contexts(
+        catchment_masks=catchment_masks,
+        transform=transform,
+        station_xy=station_xy,
+        catchment_ids=catchment_ids,
+        buffer_distance=buffer_distance,
+        max_stations=max_stations,
+        weight_eps=weight_eps,
+        inside_bonus=inside_bonus,
+    )
+
+    if catchment_ids is None:
+        all_ids = [f"catchment_{i + 1:03d}" for i in range(len(catchment_masks))]
+    else:
+        all_ids = list(catchment_ids)
+
+    results = {cid: [] for cid in all_ids}
+
+    for date in date_index:
+        day_values = ts_wide.loc[date]
+        for cid in all_ids:
+            context = contexts.get(cid)
+            if context is None:
+                results[cid].append(np.nan)
+                continue
+
+            value = _krige_catchment_day(
+                date=date,
+                day_values=day_values,
+                context=context,
+                variogram_model=variogram_model,
+                variogram_params=variogram_params,
+                nlags=nlags,
+                min_stations=min_stations,
+            )
+            results[cid].append(value)
+
+    df = pd.DataFrame(results, index=date_index)
+    df.index.name = "date"
+    df = df.reset_index()
+
+    if missing:
+        missing_str = ", ".join(missing)
+        print(
+            "Catchment senza stazioni sufficienti per il kriging: "
+            f"{missing_str}"
+        )
+
+    return df
 
 
 # ==============================
