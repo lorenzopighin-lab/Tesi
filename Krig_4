@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import glob
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -384,6 +385,10 @@ def _krige_catchment_day(
             return float(np.nan)
         if weights.sum() > 0:
             weights = weights / weights.sum()
+        print(
+            f"[WARN] {date.date()}: kriging fallito per il bacino "
+            f"{context.catchment_id}, uso media pesata."
+        )
         return float(np.dot(weights, zs))
 
 
@@ -499,6 +504,7 @@ def compute_catchment_precipitation_series(
         all_ids = list(catchment_ids)
 
     results = {cid: [] for cid in all_ids}
+    catchment_durations = {cid: 0.0 for cid in all_ids}
 
     for date in date_index:
         day_values = ts_wide.loc[date]
@@ -507,7 +513,7 @@ def compute_catchment_precipitation_series(
             if context is None:
                 results[cid].append(np.nan)
                 continue
-
+            start_time = time.perf_counter()
             value = _krige_catchment_day(
                 date=date,
                 day_values=day_values,
@@ -517,11 +523,20 @@ def compute_catchment_precipitation_series(
                 nlags=nlags,
                 min_stations=min_stations,
             )
+            catchment_durations[cid] += time.perf_counter() - start_time
             results[cid].append(value)
 
     df = pd.DataFrame(results, index=date_index)
     df.index.name = "date"
     df = df.reset_index()
+    
+    for cid, duration in catchment_durations.items():
+        if cid not in contexts:
+            continue
+        print(
+            f"Interpolazione completata per il bacino {cid} in "
+            f"{duration:.2f} secondi"
+        )
 
     if missing:
         missing_str = ", ".join(missing)
