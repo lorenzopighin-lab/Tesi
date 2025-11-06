@@ -17,7 +17,7 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from krig_2 import compute_catchment_precipitation_series
+from Krig_4 import compute_catchment_precipitation_series
 
 
 # --- Configurazione generale ---
@@ -52,6 +52,12 @@ PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 3
 PRECIP_MAX_STATIONS = 12
 CATCHMENT_SERIES_OUTPUT = Path("catchment_precipitation_table.csv")
+
+# --- Opzioni Kriging ---
+RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
+PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da interpolare
+# Esempio: ["catchment_001", "catchment_010"] oppure stringa "catchment_001,catchment_010"
+KRIGING_CATCHMENT_IDS = None
 
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
@@ -644,7 +650,6 @@ for point in selected_points:
     point["expected_area"] = float(expected_area)
     point["catchment_area"] = float(actual_area)
     point["deviation"] = float(deviation)
-    catchment_ids.append(catchment_id)
     catchment_points.append(point.copy())
 
     labels[mask & (labels == 0)] = label_id
@@ -810,38 +815,93 @@ else:
     print("Nessun catchment valido da plottare.")
 
 #%% Serie di precipitazione media per catchment
-if catchments:
+if not RUN_KRIGING:
+    print("Kriging disabilitato; eseguita solo l'estrazione della rete.")
+elif not catchments:
+    print("Nessun catchment disponibile per il calcolo delle precipitazioni medie.")
+else:
     crs_obj = profile.get("crs") if isinstance(profile, dict) else None
     dtm_crs = None
     if crs_obj is not None:
         dtm_crs = crs_obj.to_string() if hasattr(crs_obj, "to_string") else str(crs_obj)
 
-    print("Avvio calcolo serie di precipitazione media per catchment tramite kriging...")
-    try:
-        precip_table = compute_catchment_precipitation_series(
-            catchment_masks=catchments,
-            transform=grid.affine,
-            catchment_ids=catchment_ids,
-            csv_dir=PRECIP_CSV_DIR,
-            station_meta=STATION_META_PATH,
-            dtm_crs=dtm_crs,
-            start_date=PRECIP_DATE_START,
-            end_date=PRECIP_DATE_END,
-            buffer_distance=PRECIP_BUFFER_METERS,
-            min_stations=PRECIP_MIN_STATIONS,
-            max_stations=PRECIP_MAX_STATIONS,
-        )
-        if not precip_table.empty:
-            precip_table.to_csv(CATCHMENT_SERIES_OUTPUT, index=False)
-            print(
-                "Tabella precipitazioni media catchment salvata in "
-                f"{CATCHMENT_SERIES_OUTPUT.resolve()}"
-            )
+    def _normalize_requested_ids(raw_ids):
+        if raw_ids is None:
+            return []
+        if isinstance(raw_ids, (list, tuple, set)):
+            items = [str(item) for item in raw_ids]
         else:
-            print(
-                "Nessuna serie di precipitazione calcolata: verificare dati di input o catchments."
+            items = [part for part in str(raw_ids).replace(";", ",").split(",")]
+        normalized = []
+        for item in items:
+            clean = item.strip()
+            if not clean:
+                continue
+            normalized.append(clean)
+        return normalized
+
+    requested_ids = _normalize_requested_ids(KRIGING_CATCHMENT_IDS)
+
+    if not requested_ids and PROMPT_KRIGING_CATCHMENTS:
+        try:
+            user_input = input(
+                "Inserisci gli ID dei catchment per il kriging (separati da virgola) "
+                "oppure premi Invio per tutti: "
             )
-    except Exception as exc:
-        print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
-else:
-    print("Nessun catchment disponibile per il calcolo delle precipitazioni medie.")
+        except EOFError:
+            user_input = ""
+        user_input = user_input.strip()
+        if user_input and user_input.lower() not in {"tutti", "all"}:
+            requested_ids = _normalize_requested_ids(user_input)
+        else:
+            requested_ids = []
+
+    catchment_map = dict(zip(catchment_ids, catchments))
+    selected_ids = list(catchment_ids)
+    selected_masks = list(catchments)
+
+    if requested_ids:
+        missing = [cid for cid in requested_ids if cid not in catchment_map]
+        if missing:
+            print(
+                "Catchment non presenti tra quelli estratti: "
+                + ", ".join(missing)
+            )
+    selected_ids = [cid for cid in requested_ids if cid in catchment_map]
+    selected_masks = [catchment_map[cid] for cid in selected_ids]
+
+    if not selected_ids:
+        print(
+            "Nessun catchment selezionato per il kriging; eseguita solo l'estrazione della rete."
+        )
+    else:
+        print(
+            "Avvio calcolo serie di precipitazione media per catchment tramite kriging "
+            f"({len(selected_ids)} catchment)."
+        )
+        try:
+            precip_table = compute_catchment_precipitation_series(
+                catchment_masks=selected_masks,
+                transform=grid.affine,
+                catchment_ids=selected_ids,
+                csv_dir=PRECIP_CSV_DIR,
+                station_meta=STATION_META_PATH,
+                dtm_crs=dtm_crs,
+                start_date=PRECIP_DATE_START,
+                end_date=PRECIP_DATE_END,
+                buffer_distance=PRECIP_BUFFER_METERS,
+                min_stations=PRECIP_MIN_STATIONS,
+                max_stations=PRECIP_MAX_STATIONS,
+            )
+            if not precip_table.empty:
+                precip_table.to_csv(CATCHMENT_SERIES_OUTPUT, index=False)
+                print(
+                    "Tabella precipitazioni media catchment salvata in "
+                    f"{CATCHMENT_SERIES_OUTPUT.resolve()}"
+                )
+            else:
+                print(
+                    "Nessuna serie di precipitazione calcolata: verificare dati di input o catchments."
+                )
+        except Exception as exc:
+            print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
