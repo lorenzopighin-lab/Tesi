@@ -391,6 +391,7 @@ def compute_catchment_precipitation_series(
     catchment_masks: Sequence[np.ndarray],
     transform: Affine,
     catchment_ids: Optional[Sequence[str]] = None,
+    selected_catchment_ids: Optional[Sequence[str]] = None,
     csv_dir: Path = CSV_DIR,
     station_meta: Path = STATION_META,
     dtm_crs: Optional[str] = None,
@@ -406,8 +407,52 @@ def compute_catchment_precipitation_series(
     variogram_params=VARIOGRAM_PARAMS,
     nlags: int = N_LAGS,
 ) -> pd.DataFrame:
-    if not catchment_masks:
+    
+    def _normalize_requested_ids(raw_ids: Optional[Sequence[str]]) -> List[str]:
+        if not raw_ids:
+            return []
+        normalized: List[str] = []
+        for item in raw_ids:
+            text = str(item).strip()
+            if not text:
+                continue
+            normalized.append(text)
+        return normalized
+
+    requested_ids = _normalize_requested_ids(selected_catchment_ids)
+
+    if catchment_ids is None:
+        catchment_pairs = [
+            (f"catchment_{idx + 1:03d}", mask)
+            for idx, mask in enumerate(catchment_masks)
+        ]
+    else:
+        catchment_pairs = list(zip(catchment_ids, catchment_masks))
+
+    if requested_ids:
+        available_map = {cid: mask for cid, mask in catchment_pairs}
+        filtered_pairs: List[Tuple[str, np.ndarray]] = []
+        missing_requested: List[str] = []
+        for cid in requested_ids:
+            mask = available_map.get(cid)
+            if mask is None:
+                missing_requested.append(cid)
+                continue
+            filtered_pairs.append((cid, mask))
+
+        if missing_requested:
+            print(
+                "Catchment richiesti non trovati per il kriging: "
+                + ", ".join(missing_requested)
+            )
+
+        catchment_pairs = filtered_pairs
+
+    if not catchment_pairs:
         return pd.DataFrame(columns=["date"])
+    
+    catchment_ids = [cid for cid, _ in catchment_pairs]
+    catchment_masks = [mask for _, mask in catchment_pairs]
 
     csv_dir = Path(csv_dir)
     station_meta = Path(station_meta)
