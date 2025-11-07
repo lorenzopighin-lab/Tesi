@@ -22,7 +22,6 @@ Note importanti:
 """
 from __future__ import annotations
 
-import os
 import glob
 import time
 from dataclasses import dataclass
@@ -31,8 +30,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 import rasterio
-from rasterio.transform import Affine
-from rasterio.transform import rowcol
+from rasterio.transform import Affine, rowcol
 from pyproj import Transformer
 
 from pykrige.ok import OrdinaryKriging
