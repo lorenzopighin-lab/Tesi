@@ -1,0 +1,72 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Nov  6 16:56:08 2025
+
+@author: loren
+"""
+
+import numpy as np
+
+
+
+#parametri per generare serie di piogge fittizie sincrone in due sottobacini di frequenze l e intensità a
+lunghezza_serie = 1000000
+
+a_1t =  10   # altezza media di pioggia in ogni giorno piovoso nel bacino 1 (in mm)
+a_2t =  50  # idem come sopra per il bacino 2 
+
+l_1t = 0.8 # frequenza media dei giorni di pioggia nel bacino 1 
+l_2t = 0.3 # idem come sopra per il bacino 2 
+
+
+##############################################################################
+
+#genera serie di piogge 
+h_1 = np.random.exponential(a_1t, lunghezza_serie)
+h_2 = np.random.exponential(a_2t, lunghezza_serie)
+
+temp_1 = np.random.rand(lunghezza_serie) < l_1t
+temp_2 = np.random.rand(lunghezza_serie) < l_2t
+
+
+h_1=h_1*temp_1
+h_2=h_2*temp_2
+
+
+
+
+#calcola i parametri del modello a partire dalle serie temporali fittizie
+#(i parametri "_t" devono corrispondere a quelli sopra usati per generare le serie)
+
+lambda_1t =  np.sum(h_1>0) / lunghezza_serie
+lambda_2t =  np.sum(h_2>0) / lunghezza_serie
+
+lambda_1 =  np.sum( (h_1>0) & (h_2==0) ) / lunghezza_serie
+lambda_2 =  np.sum( (h_2>0) & (h_1==0) ) / lunghezza_serie
+
+lambda_12 =  np.sum( (h_1>0) & (h_2>0) ) / lunghezza_serie
+
+alpha_1t =  np.mean(h_1[h_1>0]) 
+alpha_2t =  np.mean(h_2[h_2>0]) 
+
+alpha_1 =  np.mean(h_1[(h_1>0) & (h_2==0)]) 
+alpha_2 =  np.mean(h_2[(h_2>0) & (h_1==0)]) 
+
+alpha_1_12 =  np.mean(h_1[(h_1>0) & (h_2>0)]) 
+alpha_2_12 =  np.mean(h_2[(h_1>0) & (h_2>0)]) 
+
+
+
+#calcola la correlazione tra le intensità degli eventi di pioggia sincroni
+# essendo le serie temporali di pioggia generate casualmente senza nessuna struttura di correlazione tra le due, 
+# r_alpha_12 sarà prossimo a zero. quando userai le serie temporali di piogge vere, queste saranno correlate e r_alpha_12 sarà >0
+r_alpha_12 = np.corrcoef( h_1[(h_1>0) & (h_2>0)], h_2[(h_1>0) & (h_2>0)])[0, 1]
+
+
+
+#calcola la correlazione tra le portate con la prima formula dell'articolo https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2016WR019195
+# il calcolo con le altre formule lo puoi implementare te. se non ricordo male 
+# però quando si usavano solo le piogge era la versione più semplice del modello quella che funzionava meglio
+
+
+rho = lambda_12  / np.sqrt( lambda_1t * lambda_2t)  * 0.5 * (1+r_alpha_12 )
