@@ -6,67 +6,140 @@ Created on Thu Nov  6 16:56:08 2025
 """
 
 import numpy as np
+import itertools
+from typing import List
+import pandas as pd
+from pathlib import Path
+
+CSV_DIR  = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\kriging_out")  # ← cambia qui
+CSV_FILE = "catchment_precipitation_table.csv"                           # ← o cambia nome
+
+def _safe_mean(values: np.ndarray) -> float:
+    if values.size == 0:
+        return float("nan")
+    return float(np.mean(values))
 
 
+def _compute_parameters(h_1: np.ndarray, h_2: np.ndarray) -> dict:
+    if h_1.shape != h_2.shape:
+        raise ValueError("Rainfall series must have the same length")
 
-#parametri per generare serie di piogge fittizie sincrone in due sottobacini di frequenze l e intensità a
-lunghezza_serie = 1000000
+    valid_mask = (~np.isnan(h_1)) & (~np.isnan(h_2))
+    h_1 = h_1[valid_mask]
+    h_2 = h_2[valid_mask]
 
-a_1t =  10   # altezza media di pioggia in ogni giorno piovoso nel bacino 1 (in mm)
-a_2t =  50  # idem come sopra per il bacino 2 
+    if h_1.size == 0:
+        raise ValueError("No overlapping data between the two rainfall series")
 
-l_1t = 0.8 # frequenza media dei giorni di pioggia nel bacino 1 
-l_2t = 0.3 # idem come sopra per il bacino 2 
+    length_series = h_1.size
 
+    lambda_1t = np.sum(h_1 > 0) / length_series
+    lambda_2t = np.sum(h_2 > 0) / length_series
 
-##############################################################################
+    lambda_1 = np.sum((h_1 > 0) & (h_2 == 0)) / length_series
+    lambda_2 = np.sum((h_2 > 0) & (h_1 == 0)) / length_series
+    lambda_12 = np.sum((h_1 > 0) & (h_2 > 0)) / length_series
 
-#genera serie di piogge 
-h_1 = np.random.exponential(a_1t, lunghezza_serie)
-h_2 = np.random.exponential(a_2t, lunghezza_serie)
+    alpha_1t = _safe_mean(h_1[h_1 > 0])
+    alpha_2t = _safe_mean(h_2[h_2 > 0])
 
-temp_1 = np.random.rand(lunghezza_serie) < l_1t
-temp_2 = np.random.rand(lunghezza_serie) < l_2t
+    alpha_1 = _safe_mean(h_1[(h_1 > 0) & (h_2 == 0)])
+    alpha_2 = _safe_mean(h_2[(h_2 > 0) & (h_1 == 0)])
 
+    alpha_1_12 = _safe_mean(h_1[(h_1 > 0) & (h_2 > 0)])
+    alpha_2_12 = _safe_mean(h_2[(h_1 > 0) & (h_2 > 0)])
 
-h_1=h_1*temp_1
-h_2=h_2*temp_2
+    synchronous_h_1 = h_1[(h_1 > 0) & (h_2 > 0)]
+    synchronous_h_2 = h_2[(h_1 > 0) & (h_2 > 0)]
 
+    if synchronous_h_1.size > 1:
+        r_alpha_12 = float(np.corrcoef(synchronous_h_1, synchronous_h_2)[0, 1])
+    else:
+        r_alpha_12 = float("nan")
 
+    if lambda_1t > 0 and lambda_2t > 0 and not np.isnan(r_alpha_12):
+        rho = lambda_12 / np.sqrt(lambda_1t * lambda_2t) * 0.5 * (1 + r_alpha_12)
+    else:
+        rho = float("nan")
 
-
-#calcola i parametri del modello a partire dalle serie temporali fittizie
-#(i parametri "_t" devono corrispondere a quelli sopra usati per generare le serie)
-
-lambda_1t =  np.sum(h_1>0) / lunghezza_serie
-lambda_2t =  np.sum(h_2>0) / lunghezza_serie
-
-lambda_1 =  np.sum( (h_1>0) & (h_2==0) ) / lunghezza_serie
-lambda_2 =  np.sum( (h_2>0) & (h_1==0) ) / lunghezza_serie
-
-lambda_12 =  np.sum( (h_1>0) & (h_2>0) ) / lunghezza_serie
-
-alpha_1t =  np.mean(h_1[h_1>0]) 
-alpha_2t =  np.mean(h_2[h_2>0]) 
-
-alpha_1 =  np.mean(h_1[(h_1>0) & (h_2==0)]) 
-alpha_2 =  np.mean(h_2[(h_2>0) & (h_1==0)]) 
-
-alpha_1_12 =  np.mean(h_1[(h_1>0) & (h_2>0)]) 
-alpha_2_12 =  np.mean(h_2[(h_1>0) & (h_2>0)]) 
-
-
-
-#calcola la correlazione tra le intensità degli eventi di pioggia sincroni
-# essendo le serie temporali di pioggia generate casualmente senza nessuna struttura di correlazione tra le due, 
-# r_alpha_12 sarà prossimo a zero. quando userai le serie temporali di piogge vere, queste saranno correlate e r_alpha_12 sarà >0
-r_alpha_12 = np.corrcoef( h_1[(h_1>0) & (h_2>0)], h_2[(h_1>0) & (h_2>0)])[0, 1]
-
-
-
-#calcola la correlazione tra le portate con la prima formula dell'articolo https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2016WR019195
-# il calcolo con le altre formule lo puoi implementare te. se non ricordo male 
-# però quando si usavano solo le piogge era la versione più semplice del modello quella che funzionava meglio
+    return {
+        "lambda_1t": lambda_1t,
+        "lambda_2t": lambda_2t,
+        "lambda_1": lambda_1,
+        "lambda_2": lambda_2,
+        "lambda_12": lambda_12,
+        "alpha_1t": alpha_1t,
+        "alpha_2t": alpha_2t,
+        "alpha_1": alpha_1,
+        "alpha_2": alpha_2,
+        "alpha_1_12": alpha_1_12,
+        "alpha_2_12": alpha_2_12,
+        "r_alpha_12": r_alpha_12,
+        "rho": rho,
+    }
 
 
-rho = lambda_12  / np.sqrt( lambda_1t * lambda_2t)  * 0.5 * (1+r_alpha_12 )
+def compute_from_csv(csv_path: str) -> pd.DataFrame:
+    data = pd.read_csv(csv_path)
+    catchment_columns: List[str] = [col for col in data.columns if col.lower().startswith("catchment_")]
+
+    if len(catchment_columns) < 2:
+        raise ValueError("The CSV file must contain at least two 'catchment_' columns")
+
+    results = []
+    for col_a, col_b in itertools.combinations(catchment_columns, 2):
+        h_1 = data[col_a].to_numpy(dtype=float)
+        h_2 = data[col_b].to_numpy(dtype=float)
+
+        params = _compute_parameters(h_1, h_2)
+        params.update({
+            "catchment_a": col_a,
+            "catchment_b": col_b,
+        })
+        results.append(params)
+
+    columns_order = [
+        "catchment_a",
+        "catchment_b",
+        "lambda_1t",
+        "lambda_2t",
+        "lambda_1",
+        "lambda_2",
+        "lambda_12",
+        "alpha_1t",
+        "alpha_2t",
+        "alpha_1",
+        "alpha_2",
+        "alpha_1_12",
+        "alpha_2_12",
+        "r_alpha_12",
+        "rho",
+    ]
+
+    return pd.DataFrame(results, columns=columns_order)
+
+def _resolve_csv_path(csv_dir: Path, csv_file: str | None = None) -> Path:
+    """Restituisce il Path del CSV; se csv_file è None sceglie il .csv più recente nella cartella."""
+    if csv_file:
+        p = csv_dir / csv_file
+        if not p.exists():
+            raise FileNotFoundError(f"Non trovo il file: {p}")
+        return p
+    # Altrimenti cerca il più recente
+    candidates = sorted(csv_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise FileNotFoundError(f"Nessun CSV trovato in {csv_dir}")
+    return candidates[0]
+
+def main() -> None:
+    csv_path = _resolve_csv_path(CSV_DIR, CSV_FILE)  # usa cartella + nome (o il più recente)
+    print(f"Uso CSV: {csv_path}")
+    results = compute_from_csv(str(csv_path))        # compute_from_csv accetta una stringa/percorso
+    if results.empty:
+        print("No catchment combinations found.")
+    else:
+        print(results.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
