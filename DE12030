@@ -11,6 +11,8 @@ import math
 import array 
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import numpy as np
 import rasterio
 import seaborn as sns
@@ -51,13 +53,84 @@ PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 3
 PRECIP_MAX_STATIONS = 12
-CATCHMENT_SERIES_OUTPUT = Path("catchment_precipitation_table.csv")
+CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
 # --- Opzioni Kriging ---
 RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
 PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da interpolare
 # Esempio: ["catchment_001", "catchment_010"] oppure stringa "catchment_001,catchment_010"
 KRIGING_CATCHMENT_IDS = None
+
+def _format_scalebar_label(length_meters: float) -> str:
+    if length_meters >= 1000:
+        km_value = length_meters / 1000.0
+        if math.isclose(km_value, round(km_value), rel_tol=1e-9):
+            return f"{int(round(km_value))} km"
+        return f"{km_value:.1f} km"
+    if math.isclose(length_meters, round(length_meters), rel_tol=1e-9):
+        return f"{int(round(length_meters))} m"
+    return f"{length_meters:.0f} m"
+
+
+def add_scale_bar(
+    ax,
+    transform,
+    *,
+    preferred_lengths_meters=None,
+    location="lower right",
+    color="black",
+):
+    """Add a simple scale bar to ``ax`` based on the raster transform."""
+    if transform is None:
+        return
+    try:
+        pixel_width_units = abs(float(transform.a))
+    except (AttributeError, TypeError, ValueError):
+        pixel_width_units = None
+    if not pixel_width_units:
+        return
+    meters_per_unit = PIXEL_SIZE_METERS / pixel_width_units
+    if not np.isfinite(meters_per_unit) or meters_per_unit <= 0:
+        return
+
+    xlim = ax.get_xlim()
+    axis_width_units = abs(xlim[1] - xlim[0])
+    axis_width_meters = axis_width_units * meters_per_unit
+    if axis_width_meters <= 0:
+        return
+
+    if not preferred_lengths_meters:
+        preferred_lengths_meters = [50, 100, 200, 500, 1000, 2000, 5000, 10000]
+
+    selected_length = None
+    for candidate in preferred_lengths_meters:
+        if candidate <= axis_width_meters * 0.4:
+            selected_length = candidate
+    if selected_length is None:
+        selected_length = axis_width_meters / 5
+    if selected_length <= 0 or not np.isfinite(selected_length):
+        return
+
+    length_data_units = selected_length / meters_per_unit
+    if not np.isfinite(length_data_units) or length_data_units <= 0:
+        return
+
+    fontprops = fm.FontProperties(size=10)
+    size_vertical = max(length_data_units * 0.05, axis_width_units * 0.002)
+    scalebar = AnchoredSizeBar(
+        ax.transData,
+        length_data_units,
+        _format_scalebar_label(selected_length),
+        loc=location,
+        pad=0.4,
+        borderpad=0.4,
+        sep=4,
+        color=color,
+        frameon=True,
+        size_vertical=size_vertical,
+        fontproperties=fontprops,
+    )
+    ax.add_artist(scalebar)
 
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
@@ -126,6 +199,7 @@ ax.scatter(
 ax.set_title('DEM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
+add_scale_bar(ax, grid.affine, location='lower right')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 
@@ -173,6 +247,7 @@ ax.scatter(
 ax.set_title('Catchment Outline on DEM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
+add_scale_bar(ax, grid.affine, location='lower right')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 plt.show()
@@ -197,6 +272,7 @@ fig, ax = plt.subplots(figsize=(8.5,6.5))
 plt.xlim(grid.bbox[0], grid.bbox[2])
 plt.ylim(grid.bbox[1], grid.bbox[3])
 ax.set_aspect('equal')
+add_scale_bar(ax, grid.affine, location='lower left')
 
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
@@ -795,6 +871,7 @@ def plot_catchment_i(i,
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
     ax.set_title(f"Area contribuente #{i} su bacino principale")
+    add_scale_bar(ax, transform_view, location='lower right')
     ax.legend(loc="best")
     plt.show()
     
