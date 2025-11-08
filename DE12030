@@ -965,7 +965,7 @@ else:
         try:
             user_input = input(
                 "Inserisci gli ID dei catchment per il kriging (separati da virgola) "
-                "oppure digita 'tutti' per tutti:MODIFICAAAAAAAAA "
+                "oppure premi invio per tutti:"
             )
         except EOFError:
             user_input = ""
@@ -986,7 +986,14 @@ else:
                 "Catchment non presenti tra quelli estratti: "
                 + ", ".join(missing)
             )
-    selected_ids = [cid for cid in requested_ids if cid in catchment_map]
+        selected_ids = [cid for cid in requested_ids if cid in catchment_map]
+    else:
+        selected_ids = list(catchment_ids)
+        if selected_ids:
+            print(
+                "Nessun ID specificato: verranno elaborati tutti i catchment disponibili."
+            )
+    
     selected_masks = [catchment_map[cid] for cid in selected_ids]
 
     if not selected_ids:
