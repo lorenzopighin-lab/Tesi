@@ -53,9 +53,9 @@ PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")
 STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
-PRECIP_BUFFER_METERS = 20000.0
-PRECIP_MIN_STATIONS = 3
-PRECIP_MAX_STATIONS = 12
+PRECIP_BUFFER_METERS = 50000.0
+PRECIP_MIN_STATIONS = 7
+PRECIP_MAX_STATIONS = 20
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
 # --- Opzioni Kriging ---
@@ -917,7 +917,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 1  # indice del sottobacino (0-based)
+i = 18  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
