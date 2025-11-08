@@ -27,7 +27,7 @@ from Krig_4 import compute_catchment_precipitation_series
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif"
 POUR_POINT = array.array('f', [8.710165, 52.197884	])
 SNAP_ACCUMULATION_THRESHOLD = 100000
-BRANCH_ACCUMULATION_THRESHOLD = 6000
+BRANCH_ACCUMULATION_THRESHOLD = 8000
 MIN_ACCUMULATION_KM2 = 10
 
 # --- Parametri dimensionali ---
@@ -41,14 +41,17 @@ PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 # --- Parametri selezione pixel ---
 # "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
+# Sui rami più corti di MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS non vengono
+# selezionati pixel intermedi.
 PIXEL_PLACEMENT_MODE = "equidistant"
-MAX_INTERMEDIATE_PIXELS = 0
+MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
+MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 
 # --- Configurazione piogge medie per catchment ---
 PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")
 STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")
-PRECIP_DATE_START = "2000-01-01"
+PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 3
@@ -406,6 +409,16 @@ for branch_id in unique_branch_ids:
         dc = (c1 - c0) * cell_size_x
         step_distance = math.hypot(dr, dc)
         cumulative_distances.append(cumulative_distances[-1] + step_distance)
+    
+    branch_length = cumulative_distances[-1] if cumulative_distances else 0.0
+    try:
+        min_branch_length = float(MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS)
+    except (TypeError, ValueError):
+        min_branch_length = 0.0
+    if not np.isfinite(min_branch_length):
+        min_branch_length = 0.0
+    min_branch_length = max(0.0, min_branch_length)
+    allow_intermediate_selection = branch_length >= min_branch_length
 
     branch_selected = []
     used_indices = set()
@@ -423,7 +436,11 @@ for branch_id in unique_branch_ids:
 # Numero massimo di slot disponibili per eventuali punti intermedi.
     available_slots = max(0, n_coords - 2)
 
-    if n_coords > 2 and available_slots > 0:
+    if (
+        n_coords > 2
+        and available_slots > 0
+        and allow_intermediate_selection
+    ):
         mode = (PIXEL_PLACEMENT_MODE or "").strip().lower()
         # Target distances esprime le posizioni desiderate lungo il ramo.
         target_distances = []
@@ -587,6 +604,30 @@ for rr, cc in selected_coords_list:
     point["snapped_index"] = (int(rsnap), int(csnap))
     point["snapped_coord"] = (float(xsnap), float(ysnap))
     selected_points.append(point)
+
+# Rimuovi eventuali duplicati basati sulle coordinate "snappate" e
+# verifica che tutti i pixel selezionati abbiano coordinate distinte.
+unique_points = []
+seen_snapped_indices = set()
+duplicate_count = 0
+
+for point in selected_points:
+    snapped_key = point.get("snapped_index")
+    if snapped_key in seen_snapped_indices:
+        duplicate_count += 1
+        continue
+    seen_snapped_indices.add(snapped_key)
+    unique_points.append(point)
+
+if duplicate_count:
+    print(f"Rimossi {duplicate_count} pixel duplicati basati sulle coordinate snappate.")
+
+selected_points = unique_points
+
+# Controllo finale: assicurati che tutte le coordinate siano differenti.
+assert len(selected_points) == len(seen_snapped_indices), (
+    "Sono presenti pixel duplicati nelle coordinate selezionate.")
+
 
 #%% Area contribuente dei pixel estratti (catchments)
 
@@ -876,7 +917,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 87  # indice del sottobacino (0-based)
+i = 1  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
@@ -911,6 +952,7 @@ else:
             items = [part for part in str(raw_ids).replace(";", ",").split(",")]
         normalized = []
         for item in items:
+    
             clean = item.strip()
             if not clean:
                 continue
@@ -923,7 +965,7 @@ else:
         try:
             user_input = input(
                 "Inserisci gli ID dei catchment per il kriging (separati da virgola) "
-                "oppure premi Invio per tutti: "
+                "oppure digita 'tutti' per tutti:MODIFICAAAAAAAAA "
             )
         except EOFError:
             user_input = ""
