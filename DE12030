@@ -199,13 +199,14 @@ ax.scatter(
     facecolors='none',
     edgecolors='red',
     linewidth=1.8,
-    label='Punto',
+    label='Sezione di chiusura',
 )
 ax.set_title('DSM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower right')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
+ax.legend(loc='upper right')
 plt.tight_layout()
 
 # Catchment outline over DEM
