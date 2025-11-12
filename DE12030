@@ -7,7 +7,7 @@ Created on Mon Oct  6 12:28:45 2025
 
 import os
 import math
-
+import csv
 import array 
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
@@ -137,6 +137,43 @@ def add_scale_bar(
     )
     ax.add_artist(scalebar)
 
+def _load_station_points(meta_path: Path):
+    if not meta_path:
+        return None, None
+    try:
+        with meta_path.open(newline="", encoding="utf-8") as fp:
+            reader = csv.DictReader(fp)
+            if not reader.fieldnames or {"lon", "lat"} - set(reader.fieldnames):
+                print(
+                    "Impossibile tracciare le stazioni: il file di metadata non contiene colonne 'lon' e 'lat'."
+                )
+                return None, None
+            lons = []
+            lats = []
+            for row in reader:
+                try:
+                    lon = float(row["lon"])
+                    lat = float(row["lat"])
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(lon) and math.isfinite(lat):
+                    lons.append(lon)
+                    lats.append(lat)
+    except FileNotFoundError:
+        print(f"File metadata stazioni non trovato: {meta_path}")
+        return None, None
+    except OSError as exc:
+        print(f"Impossibile leggere il file metadata delle stazioni '{meta_path}': {exc}")
+        return None, None
+
+    if not lons or not lats:
+        print("Nessuna coordinata valida trovata nel file di metadata delle stazioni.")
+        return None, None
+    return np.asarray(lons, dtype="float32"), np.asarray(lats, dtype="float32")
+
+
+station_lons, station_lats = _load_station_points(STATION_META_PATH)
+
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
     profile = src.profile
@@ -201,6 +238,23 @@ ax.scatter(
     linewidth=1.8,
     label='Sezione di chiusura',
 )
+if (
+    station_lons is not None
+    and station_lats is not None
+    and getattr(station_lons, "size", 0)
+    and getattr(station_lats, "size", 0)
+):
+    ax.scatter(
+        station_lons,
+        station_lats,
+        s=45,
+        marker='^',
+        facecolors='#f9c74f',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=5,
+        label='stazioni di misura',
+    )
 ax.set_title('DSM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
@@ -805,7 +859,7 @@ sc = ax.scatter(
                     edgecolors='k', linewidths=0.3,
                     zorder=5, label='Pixel selezionati')
 _ = plt.title(
-    f"Channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+    f" Selected pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
     size=14,
 )
 
