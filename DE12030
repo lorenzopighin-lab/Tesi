@@ -903,11 +903,12 @@ if expected_areas:
 
 def plot_catchment_i(i,
                      catchments,        # lista di mask boolean (come creato prima)
-                     xs, ys,      # coordinate dei seed (ordinate come catchments)
+                     xs, ys,            # coordinate dei seed (solo sottobacini)
                      catch,             # mask booleana del bacino principale (stessa view)
                      transform_view,    # grid.affine della view clippata
                      dem_view=None,     # opzionale: DEM nella view (stessa shape)
-                     main_seed=None     # opzionale: (x0, y0) seed del bacino principale
+                     main_seed=None,    # opzionale: (x0, y0) seed del bacino principale
+                     catchment_ids=None # opzionale: lista ID catchment per il titolo
                      ):
     """
     Visualizza il sottobacino i-esimo sovrapposto al bacino principale, con i relativi punti seed.
@@ -953,42 +954,60 @@ def plot_catchment_i(i,
             marker='^',
             edgecolor='k',
             linewidth=0.8,
-            label="seed principale",
+            label="sezione principale",
         )
+    
+    if catchment_ids is not None and 0 <= i < len(catchment_ids):
+        catchment_label = catchment_ids[i]
+    else:
+        catchment_label = f"#{i}"
 
     # punti seed dei sottobacini
-    ax.scatter(
-        xs,
-        ys,
-        s=20,
-        c='red',
-        edgecolor='k',
-        linewidths=0.3,
-        label='seed sottobacini',
-    )
+    if xs is not None and ys is not None and len(xs) and len(ys):
+        ax.scatter(
+            xs,
+            ys,
+            s=20,
+            c='red',
+            edgecolor='k',
+            linewidths=0.3,
+            label='sezioni estratte',
+        )
 
     # evidenzia il seed del sottobacino corrente
-    ax.scatter(
-        [xs[i]],
-        [ys[i]],
-        s=45,
-        marker='o',
-        facecolor='yellow',
-        edgecolor='k',
-        linewidth=0.6,
-        label=f'seed catchment #{i}',
-    )
+    highlighted_seed = None
+    if i == 0:
+        highlighted_seed = main_seed
+    else:
+        seed_index = i - 1
+        if (
+            xs is not None
+            and ys is not None
+            and 0 <= seed_index < len(xs)
+        ):
+            highlighted_seed = (xs[seed_index], ys[seed_index])
+
+    if highlighted_seed is not None:
+        ax.scatter(
+            [highlighted_seed[0]],
+            [highlighted_seed[1]],
+            s=45,
+            marker='o',
+            facecolor='yellow',
+            edgecolor='k',
+            linewidth=0.6,
+            label=f'sezione {catchment_label}',
+        )
 
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
-    ax.set_title(f"Area contribuente #{j} su bacino principale")
+    ax.set_title(f"Area contribuente {catchment_label} su bacino principale")
     add_scale_bar(ax, transform_view, location='lower right')
     ax.legend(loc="best")
     plt.show()
     
     
-i = 52  # indice del sottobacino (0-based)
-j = i+1
+i = 155  # indice del sottobacino (0-based)
 
 if catchments:
     plot_catchment_i(
@@ -999,6 +1018,7 @@ if catchments:
         catch=grid.view(catch),
         transform_view=grid.affine,
         main_seed=(main_seed_x, main_seed_y),
+        catchment_ids=catchment_ids,
     )
 else:
     print("Nessun catchment valido da plottare.")
