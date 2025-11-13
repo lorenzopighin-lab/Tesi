@@ -57,7 +57,7 @@ PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 10000.0
 PRECIP_MIN_STATIONS = 4
-PRECIP_MAX_STATIONS = 15
+PRECIP_MAX_STATIONS = 30
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
 # --- Opzioni Kriging ---
@@ -707,6 +707,10 @@ catchment_points = []
 failed_points = []
 catchment_ids = []
 
+main_mask = grid.view(catch).astype(bool)   # maschera del bacino principale nella view clippata
+catchments    = [main_mask] + catchments
+catchment_ids = ["catchment_main"] + catchment_ids
+
 os.makedirs("catchments_tif", exist_ok=True)
 
 for point in selected_points:
@@ -983,7 +987,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 154  # indice del sottobacino (0-based)
+i = 54  # indice del sottobacino (0-based)
 j = i+1
 
 if catchments:
