@@ -50,6 +50,9 @@ INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
 
+# --- Esportazione tabella pixel selezionati ---
+PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
+
 # --- Configurazione piogge medie per catchment ---
 PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")
 STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")
@@ -694,6 +697,100 @@ selected_points = unique_points
 assert len(selected_points) == len(seen_snapped_indices), (
     "Sono presenti pixel duplicati nelle coordinate selezionate.")
 
+# --- Tabella dei pixel selezionati ---
+def _format_float_or_empty(value, precision=6):
+    if value is None:
+        return ""
+    try:
+        if not math.isfinite(value):
+            return ""
+    except TypeError:
+        return ""
+    return f"{value:.{precision}f}"
+
+
+def _format_int_or_empty(value):
+    if value is None:
+        return ""
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return ""
+
+
+pixel_table_rows = []
+for idx, point in enumerate(selected_points, start=1):
+    rsnap, csnap = point.get("snapped_index", (None, None))
+    xsnap, ysnap = point.get("snapped_coord", (None, None))
+    pixel_table_rows.append(
+        {
+            "id": idx,
+            "row": rsnap,
+            "col": csnap,
+            "x": xsnap,
+            "y": ysnap,
+        }
+    )
+
+if pixel_table_rows:
+    header = ("ID", "Row", "Col", "X", "Y")
+    col_widths = [max(len(h), 5) for h in header]
+
+    for row in pixel_table_rows:
+        col_widths[0] = max(col_widths[0], len(_format_int_or_empty(row["id"])))
+        col_widths[1] = max(col_widths[1], len(_format_int_or_empty(row["row"])))
+        col_widths[2] = max(col_widths[2], len(_format_int_or_empty(row["col"])))
+        col_widths[3] = max(col_widths[3], len(_format_float_or_empty(row["x"])))
+        col_widths[4] = max(col_widths[4], len(_format_float_or_empty(row["y"])))
+
+    def _print_row(values):
+        formatted = [
+            str(values[0]).rjust(col_widths[0]),
+            str(values[1]).rjust(col_widths[1]),
+            str(values[2]).rjust(col_widths[2]),
+            str(values[3]).rjust(col_widths[3]),
+            str(values[4]).rjust(col_widths[4]),
+        ]
+        print(" ".join(formatted))
+
+    print("\nTabella pixel selezionati (coordinate snappate):")
+    _print_row(header)
+    print(" ".join("-" * width for width in col_widths))
+    for row in pixel_table_rows:
+        _print_row(
+            (
+                _format_int_or_empty(row["id"]),
+                _format_int_or_empty(row["row"]),
+                _format_int_or_empty(row["col"]),
+                _format_float_or_empty(row["x"]),
+                _format_float_or_empty(row["y"]),
+            )
+        )
+
+    if PIXEL_TABLE_OUTPUT:
+        try:
+            with PIXEL_TABLE_OUTPUT.open("w", newline="", encoding="utf-8") as fp:
+                writer = csv.writer(fp)
+                writer.writerow(["pixel_id", "row", "col", "x", "y"])
+                for row in pixel_table_rows:
+                    writer.writerow(
+                        [
+                            row["id"],
+                            row["row"],
+                            row["col"],
+                            row["x"],
+                            row["y"],
+                        ]
+                    )
+            print(
+                f"Tabella pixel salvata in {PIXEL_TABLE_OUTPUT.resolve()}"
+            )
+        except OSError as exc:
+            print(
+                f"Impossibile salvare la tabella pixel su {PIXEL_TABLE_OUTPUT}: {exc}"
+            )
+else:
+    print("Nessun pixel selezionato: nessuna tabella da esportare.")
 
 #%% Area contribuente dei pixel estratti (catchments)
 
@@ -910,18 +1007,38 @@ def plot_catchment_i(catchment_id,
                      main_seed=None,    # opzionale: (x0, y0) seed del bacino principale
                      catchment_ids=None # opzionale: lista ID catchment per il titolo
                      ):
+    """Visualizza il catchment richiesto sovrapposto al bacino principale.
+
+    ``catchment_id`` può essere:
+
+    * l'ID testuale del catchment (es. ``"catchment_001"``);
+    * un indice intero della lista ``catchment_ids`` (es. ``1``);
+    * una stringa contenente un intero (es. ``"1"``).
     """
-    Visualizza il catchment identificato da ``catchment_id`` sovrapposto al bacino principale,
-    con i relativi punti seed.    """
+    
     if not catchments:
         raise ValueError("Nessun catchment disponibile per il plotting")
-    if catchment_ids is None:
+    if not catchment_ids:
         raise ValueError("È necessario fornire gli ID dei catchment per il plotting")
 
-    try:
-        index = catchment_ids.index(catchment_id)
-    except ValueError as exc:
-        raise KeyError(f"Catchment ID '{catchment_id}' non trovato") from exc
+    index = None
+
+    if isinstance(catchment_id, int):
+        index = catchment_id
+    else:
+        cid_str = str(catchment_id)
+        if cid_str.isdigit():
+            index = int(cid_str)
+        else:
+            try:
+                index = catchment_ids.index(cid_str)
+            except ValueError as exc:
+                raise KeyError(f"Catchment ID '{catchment_id}' non trovato") from exc
+
+    if index is None or not (0 <= index < len(catchment_ids)):
+        raise IndexError(
+            f"Indice catchment {catchment_id!r} fuori dall'intervallo disponibile"
+        )
 
     mask_i = catchments[index]          # boolean array (H, W)
     h, w = mask_i.shape
@@ -962,8 +1079,7 @@ def plot_catchment_i(catchment_id,
             label="sezione principale",
         )
     
-    catchment_label = catchment_ids[index] if 0 <= index < len(catchment_ids) else str(catchment_id)
-
+    catchment_label = catchment_ids[index]
     # punti seed dei sottobacini
     if xs is not None and ys is not None and len(xs) and len(ys):
         ax.scatter(
@@ -1009,7 +1125,8 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_id_to_plot = catchment_ids[1] if catchment_ids else None  # es. "catchment_001"
+catchment_selection = "catchment_001"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
     plot_catchment_i(
