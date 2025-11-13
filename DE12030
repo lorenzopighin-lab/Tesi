@@ -987,7 +987,7 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 54  # indice del sottobacino (0-based)
+i = 52  # indice del sottobacino (0-based)
 j = i+1
 
 if catchments:
