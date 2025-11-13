@@ -826,7 +826,7 @@ for point in selected_points:
             f"Avviso: deviazione area {deviation*100:.1f}% per il seed in {x_snap:.2f}, {y_snap:.2f}"
         )
 
-    label_id = len(catchments) + 1
+    label_id = len(catchment_ids)
     catchment_id = f"catchment_{label_id:03d}"
         
     catchments.append(mask)
@@ -891,7 +891,7 @@ if failed_points:
 xs = np.asarray([pt["snapped_coord"][0] for pt in catchment_points])
 ys = np.asarray([pt["snapped_coord"][1] for pt in catchment_points])
 
-print(f"Catchment estratti: {len(catchments)}")
+print(f"Catchment estratti: {len(catchments) - 1}")
 if expected_areas:
     areas_arr = np.asarray(areas)
     expected_arr = np.asarray(expected_areas)
@@ -901,7 +901,7 @@ if expected_areas:
     print(f"Deviazione media area rispetto ad accumulation: {np.nanmean(deviation_pct):.2f}%")
 #%%% Plot Aree contribuenti
 
-def plot_catchment_i(i,
+def plot_catchment_i(catchment_id,
                      catchments,        # lista di mask boolean (come creato prima)
                      xs, ys,            # coordinate dei seed (solo sottobacini)
                      catch,             # mask booleana del bacino principale (stessa view)
@@ -911,14 +911,19 @@ def plot_catchment_i(i,
                      catchment_ids=None # opzionale: lista ID catchment per il titolo
                      ):
     """
-    Visualizza il sottobacino i-esimo sovrapposto al bacino principale, con i relativi punti seed.
-    """
+    Visualizza il catchment identificato da ``catchment_id`` sovrapposto al bacino principale,
+    con i relativi punti seed.    """
     if not catchments:
         raise ValueError("Nessun catchment disponibile per il plotting")
-    if i < 0 or i >= len(catchments):
-        raise IndexError(f"Indice {i} fuori range per {len(catchments)} catchments disponibili")
+    if catchment_ids is None:
+        raise ValueError("È necessario fornire gli ID dei catchment per il plotting")
 
-    mask_i = catchments[i]          # boolean array (H, W)         # boolean array (H, W)
+    try:
+        index = catchment_ids.index(catchment_id)
+    except ValueError as exc:
+        raise KeyError(f"Catchment ID '{catchment_id}' non trovato") from exc
+
+    mask_i = catchments[index]          # boolean array (H, W)
     h, w = mask_i.shape
     xmin, ymin, xmax, ymax = rasterio.transform.array_bounds(h, w, 
                                                              transform_view)
@@ -957,10 +962,7 @@ def plot_catchment_i(i,
             label="sezione principale",
         )
     
-    if catchment_ids is not None and 0 <= i < len(catchment_ids):
-        catchment_label = catchment_ids[i]
-    else:
-        catchment_label = f"#{i}"
+    catchment_label = catchment_ids[index] if 0 <= index < len(catchment_ids) else str(catchment_id)
 
     # punti seed dei sottobacini
     if xs is not None and ys is not None and len(xs) and len(ys):
@@ -976,10 +978,10 @@ def plot_catchment_i(i,
 
     # evidenzia il seed del sottobacino corrente
     highlighted_seed = None
-    if i == 0:
+    if index == 0:
         highlighted_seed = main_seed
     else:
-        seed_index = i - 1
+        seed_index = index - 1
         if (
             xs is not None
             and ys is not None
@@ -1007,11 +1009,11 @@ def plot_catchment_i(i,
     plt.show()
     
     
-i = 155  # indice del sottobacino (0-based)
+catchment_id_to_plot = catchment_ids[1] if catchment_ids else None  # es. "catchment_001"
 
-if catchments:
+if catchment_id_to_plot is not None:
     plot_catchment_i(
-        i,
+        catchment_id_to_plot,
         catchments=catchments,
         xs=xs,
         ys=ys,
