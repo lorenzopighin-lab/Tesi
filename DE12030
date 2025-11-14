@@ -142,15 +142,19 @@ def add_scale_bar(
 
 def _load_station_points(meta_path: Path):
     if not meta_path:
-        return None, None
+        return [], None, None
     try:
         with meta_path.open(newline="", encoding="utf-8") as fp:
             reader = csv.DictReader(fp)
-            if not reader.fieldnames or {"lon", "lat"} - set(reader.fieldnames):
+            required_fields = {"lon", "lat", "station_id"}
+            if not reader.fieldnames or required_fields - set(reader.fieldnames):
+                missing = ", ".join(sorted(required_fields - set(reader.fieldnames or [])))
                 print(
-                    "Impossibile tracciare le stazioni: il file di metadata non contiene colonne 'lon' e 'lat'."
+                    "Impossibile tracciare le stazioni: il file di metadata non contiene "
+                    f"le colonne richieste ({missing})."
                 )
-                return None, None
+                return [], None, None
+            records = []
             lons = []
             lats = []
             for row in reader:
@@ -159,23 +163,38 @@ def _load_station_points(meta_path: Path):
                     lat = float(row["lat"])
                 except (TypeError, ValueError):
                     continue
-                if math.isfinite(lon) and math.isfinite(lat):
-                    lons.append(lon)
-                    lats.append(lat)
+                if not (math.isfinite(lon) and math.isfinite(lat)):
+                    continue
+                station_id = (row.get("station_id") or "").strip()
+                if not station_id:
+                    continue
+                record = {
+                    "station_id": station_id,
+                    "lon": float(lon),
+                    "lat": float(lat),
+                    "raw": row,
+                }
+                records.append(record)
+                lons.append(lon)
+                lats.append(lat)
     except FileNotFoundError:
         print(f"File metadata stazioni non trovato: {meta_path}")
-        return None, None
+        return [], None, None
     except OSError as exc:
         print(f"Impossibile leggere il file metadata delle stazioni '{meta_path}': {exc}")
-        return None, None
+        return [], None, None
 
-    if not lons or not lats:
-        print("Nessuna coordinata valida trovata nel file di metadata delle stazioni.")
-        return None, None
-    return np.asarray(lons, dtype="float32"), np.asarray(lats, dtype="float32")
+    if not records:
+        print("Nessuna stazione valida trovata nel file di metadata delle stazioni.")
+        return [], None, None
+    return (
+        records,
+        np.asarray(lons, dtype="float32"),
+        np.asarray(lats, dtype="float32"),
+    )
 
 
-station_lons, station_lats = _load_station_points(STATION_META_PATH)
+station_metadata, station_lons, station_lats = _load_station_points(STATION_META_PATH)
 
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
@@ -410,176 +429,6 @@ d8_to_offset = {
 }
 
 
-selected_coords_set = set()
-selected_coords_list = []
-# Mappa branch_id -> lista di pixel selezionati (per analisi e debug).
-branch_selections = {}
-
-def _add_selected_coord(rc):
-    """Aggiunge una cella alla lista dei punti selezionati se valida."""
-    if rc is None:
-        return False
-    r, c = map(int, rc)
-    if not (0 <= r < H and 0 <= c < W):
-        return False
-    if catch_view is not None and not catch_view[r, c]:
-        return False
-    if not mask_acc[r, c]:
-        return False
-
-    key = (r, c)
-    try:
-        exclusion_radius = float(MAIN_SEED_EXCLUSION_RADIUS_METERS)
-    except (TypeError, ValueError):
-        exclusion_radius = 0.0
-    if exclusion_radius > 0 and np.isfinite(exclusion_radius):
-        main_seed_rc = (int(main_seed_row), int(main_seed_col))
-        if key != main_seed_rc:
-            dr_m = (r - main_seed_rc[0]) * cell_size_y
-            dc_m = (c - main_seed_rc[1]) * cell_size_x
-            distance = math.hypot(dr_m, dc_m)
-            if distance <= exclusion_radius:
-                return False
-            
-    if key in selected_coords_set:
-        return False
-
-    selected_coords_set.add(key)
-    selected_coords_list.append(key)
-    return True
-
-unique_branch_ids = np.unique(branches_raster)
-unique_branch_ids = unique_branch_ids[unique_branch_ids > 0]
-
-# Per ciascun ramo seleziona pixel significativi lungo la direzione del flusso.
-for branch_id in unique_branch_ids:
-    branch_mask = branches_raster == branch_id
-    candidate_indices = np.argwhere(branch_mask)
-    if candidate_indices.size == 0:
-        continue
-    
-# Filtra i pixel del ramo che soddisfano le condizioni sul bacino e sull'accumulo.
-    filtered_coords = []
-    for r, c in candidate_indices:
-        if catch_view is not None and not catch_view[r, c]:
-            continue
-        if not mask_acc[r, c]:
-            continue
-        filtered_coords.append((int(r), int(c)))
-
-    if not filtered_coords:
-        continue
-
-    filtered_coords.sort(key=lambda rc: acc_view[rc])
-    n_coords = len(filtered_coords)
-
-    # Distanze cumulative lungo il ramo (ordinate da monte a valle)
-    cumulative_distances = [0.0]
-    for idx in range(1, n_coords):
-        r0, c0 = filtered_coords[idx - 1]
-        r1, c1 = filtered_coords[idx]
-        dr = (r1 - r0) * cell_size_y
-        dc = (c1 - c0) * cell_size_x
-        step_distance = math.hypot(dr, dc)
-        cumulative_distances.append(cumulative_distances[-1] + step_distance)
-    
-    branch_length = cumulative_distances[-1] if cumulative_distances else 0.0
-    try:
-        min_branch_length = float(MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS)
-    except (TypeError, ValueError):
-        min_branch_length = 0.0
-    if not np.isfinite(min_branch_length):
-        min_branch_length = 0.0
-    min_branch_length = max(0.0, min_branch_length)
-    allow_intermediate_selection = branch_length >= min_branch_length
-
-    branch_selected = []
-    used_indices = set()
-
-
-# Seleziona sempre l'estremo a valle del ramo.
-    if _add_selected_coord(filtered_coords[-1]):
-        branch_selected.append(filtered_coords[-1])
-        used_indices.add(n_coords - 1)
-
-# Numero massimo di slot disponibili per eventuali punti intermedi.
-    available_slots = max(0, n_coords - 2)
-
-    if (
-        n_coords > 2
-        and available_slots > 0
-        and allow_intermediate_selection
-    ):
-        mode = (PIXEL_PLACEMENT_MODE or "").strip().lower()
-        # Target distances esprime le posizioni desiderate lungo il ramo.
-        target_distances = []
-
-        if mode == "spacing":
-            try:
-                spacing_m = float(INTERMEDIATE_SPACING_METERS)
-            except (TypeError, ValueError):
-                spacing_m = 0.0
-            if spacing_m > 0 and cumulative_distances[-1] > 0:
-                n_targets = int(cumulative_distances[-1] // spacing_m)
-                max_intermediate = None
-                if MAX_INTERMEDIATE_PIXELS is not None:
-                    try:
-                        max_intermediate = int(MAX_INTERMEDIATE_PIXELS)
-                    except (TypeError, ValueError):
-                        max_intermediate = None
-                if max_intermediate is not None:
-                    n_targets = min(n_targets, max_intermediate)
-                n_targets = min(n_targets, available_slots)
-                target_distances = [spacing_m * i for i in range(1, n_targets + 1)]
-        else:
-            max_intermediate = None
-            if MAX_INTERMEDIATE_PIXELS is not None:
-                try:
-                    max_intermediate = int(MAX_INTERMEDIATE_PIXELS)
-                except (TypeError, ValueError):
-                    max_intermediate = None
-            if max_intermediate is not None:
-                n_intermediate = min(max_intermediate, available_slots)
-            else:
-                n_intermediate = max(1, math.ceil(n_coords / 30))
-                n_intermediate = min(n_intermediate, available_slots)
-
-            if n_intermediate > 0 and cumulative_distances[-1] > 0:
-                target_distances = np.linspace(
-                    0, cumulative_distances[-1], n_intermediate + 2
-                )[1:-1]
-
-        for target_distance in target_distances:
-            available_indices = [
-                i for i in range(1, n_coords - 1) if i not in used_indices
-            ]
-            if not available_indices:
-                break
-
-            closest_idx = min(
-                available_indices,
-                key=lambda i: abs(cumulative_distances[i] - target_distance),
-            )
-
-            coord = filtered_coords[closest_idx]
-            if _add_selected_coord(coord):
-                branch_selected.append(coord)
-            used_indices.add(closest_idx)
-
-    if branch_selected:
-        branch_selected.sort(key=lambda rc: acc_view[rc])
-        branch_selections[int(branch_id)] = branch_selected
-
-total_selected = sum(len(v) for v in branch_selections.values())
-print(f"Selezionati {total_selected} pixel su {len(branch_selections)} rami.")
-
-selected_coords_list.sort(key=lambda rc: (-acc_view[rc], rc[0], rc[1])) 
-# Ordina i pixel per importanza (accumulo decrescente e coordinate stabili).
-
-
-# --- 4) Risultati ---
-# selected_mask: booleano con i pixel scelti, distanziati lungo la rete
-
 # Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
 # Lista di dizionari con le informazioni principali di ciascun pixel selezionato.
@@ -636,43 +485,86 @@ def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
             return best_rc
     return best_rc
 
-# Costruisce il set di punti selezionati con coordinate e informazioni di snap.
-for rr, cc in selected_coords_list:
-    point = {
-        "row": int(rr),
-        "col": int(cc),
-        "original_index": (int(rr), int(cc)),
-    }
-    x, y = rasterio.transform.xy(grid.affine, rr, cc, offset="center")
-    point["initial_coord"] = (float(x), float(y))
+# Costruisce il set di punti selezionati corrispondenti alle stazioni sulla rete.
+stations_on_network = []
+stations_outside_network = []
 
-    snapped_xy = None
-    if channel_mask.any():
+if station_metadata:
+    total_stations = len(station_metadata)
+    for record in station_metadata:
+        lon = record.get("lon")
+        lat = record.get("lat")
+        if lon is None or lat is None:
+            continue
+        
         try:
-            snapped_xy = grid.snap_to_mask(channel_mask, (x, y))
+            rr_float, cc_float = rowcol(grid.affine, lon, lat)
         except Exception:
-            snapped_xy = None
-    if snapped_xy is not None:
-        xsnap, ysnap = snapped_xy
-        try:
-            rsnap_float, csnap_float = rowcol(grid.affine, xsnap, ysnap)
-            rsnap, csnap = int(rsnap_float), int(csnap_float)
-        except Exception:
-            rsnap, csnap = int(rr), int(cc)
-    else:
-        rsnap, csnap = int(rr), int(cc)
-        xsnap, ysnap = x, y
+            continue
+        
+        rr = int(rr_float)
+        cc = int(cc_float)
+        if not (0 <= rr < H and 0 <= cc < W):
+            continue
+        if catch_view is not None and not catch_view[rr, cc]:
+            stations_outside_network.append(record)
+            continue
 
+        snapped_xy = None
+        if channel_mask.any():
+            try:
+                snapped_xy = grid.snap_to_mask(channel_mask, (lon, lat))
+            except Exception:
+                snapped_xy = None
 
-    if not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]:
-        rsnap, csnap = _local_max_index(rr, cc, acc_view, mask=channel_mask)
-        xsnap, ysnap = rasterio.transform.xy(
-            grid.affine, rsnap, csnap, offset="center"
+        if snapped_xy is not None:
+            xsnap, ysnap = map(float, snapped_xy)
+            try:
+                rsnap_float, csnap_float = rowcol(grid.affine, xsnap, ysnap)
+                rsnap, csnap = int(rsnap_float), int(csnap_float)
+            except Exception:
+                rsnap, csnap = rr, cc
+        else:
+            rsnap, csnap = rr, cc
+            xsnap, ysnap = map(float, (lon, lat))
+
+        if not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]:
+            rsnap, csnap = _local_max_index(rr, cc, acc_view, mask=channel_mask, max_radius=10)
+            xsnap, ysnap = rasterio.transform.xy(
+                grid.affine, rsnap, csnap, offset="center"
+            )
+
+        if not (0 <= rsnap < H and 0 <= csnap < W):
+            continue
+        if not channel_mask[rsnap, csnap]:
+            stations_outside_network.append(record)
+            continue
+        if catch_view is not None and not catch_view[rsnap, csnap]:
+            stations_outside_network.append(record)
+            continue
+
+        point = {
+            "row": int(rr),
+            "col": int(cc),
+            "original_index": (int(rr), int(cc)),
+            "initial_coord": (float(lon), float(lat)),
+            "snapped_index": (int(rsnap), int(csnap)),
+            "snapped_coord": (float(xsnap), float(ysnap)),
+            "station_id": record.get("station_id"),
+            "station_record": record,
+        }
+        selected_points.append(point)
+        stations_on_network.append(record)
+
+    print(
+        f"Stazioni selezionate sulla rete: {len(stations_on_network)} su {total_stations} totali."
+    )
+    if stations_outside_network:
+        print(
+            f"Stazioni escluse perché fuori dalla rete: {len(stations_outside_network)}"
         )
-
-    point["snapped_index"] = (int(rsnap), int(csnap))
-    point["snapped_coord"] = (float(xsnap), float(ysnap))
-    selected_points.append(point)
+else:
+    print("Nessun metadata stazioni disponibile: nessuna stazione selezionata.")
 
 # Rimuovi eventuali duplicati basati sulle coordinate "snappate" e
 # verifica che tutti i pixel selezionati abbiano coordinate distinte.
@@ -717,6 +609,11 @@ def _format_int_or_empty(value):
     except (TypeError, ValueError):
         return ""
 
+def _format_str_or_empty(value):
+    if value is None:
+        return ""
+    value = str(value).strip()
+    return value
 
 pixel_table_rows = []
 main_seed_rc = (int(main_seed_row), int(main_seed_col))
@@ -724,7 +621,7 @@ main_seed_rc = (int(main_seed_row), int(main_seed_col))
 for idx, point in enumerate(selected_points, start=1):
     rsnap, csnap = point.get("snapped_index", (None, None))
     xsnap, ysnap = point.get("snapped_coord", (None, None))
-    
+    station_id = point.get("station_id")
     distance_m = None
     if rsnap is not None and csnap is not None:
         try:
@@ -737,6 +634,7 @@ for idx, point in enumerate(selected_points, start=1):
     pixel_table_rows.append(
         {
             "id": idx,
+            "station_id": station_id,
             "row": rsnap,
             "col": csnap,
             "x": xsnap,
@@ -746,7 +644,7 @@ for idx, point in enumerate(selected_points, start=1):
     )
 
 if pixel_table_rows:
-    header = ("ID", "Row", "Col", "X", "Y", "Distance_m")
+    header = ("ID", "Station_ID", "Row", "Col", "X", "Y", "Distance_m")
     col_widths = [max(len(h), 5) for h in header]
     
     def _row_values(row):
@@ -754,6 +652,7 @@ if pixel_table_rows:
             _format_int_or_empty(row["id"]),
             _format_int_or_empty(row["row"]),
             _format_int_or_empty(row["col"]),
+            _format_str_or_empty(row.get("station_id")),
             _format_float_or_empty(row["x"]),
             _format_float_or_empty(row["y"]),
             _format_float_or_empty(row.get("distance_m")),
@@ -778,11 +677,20 @@ if pixel_table_rows:
         try:
             with PIXEL_TABLE_OUTPUT.open("w", newline="", encoding="utf-8") as fp:
                 writer = csv.writer(fp)
-                writer.writerow(["pixel_id", "row", "col", "x", "y", "distance_m"])
+                writer.writerow([
+                    "pixel_id",
+                    "station_id",
+                    "row",
+                    "col",
+                    "x",
+                    "y",
+                    "distance_m",
+                ])
                 for row in pixel_table_rows:
                     writer.writerow(
                         [
                             row["id"],
+                            row.get("station_id"),
                             row["row"],
                             row["col"],
                             row["x"],
@@ -932,7 +840,11 @@ for point in selected_points:
         )
 
     label_id = len(catchment_ids)
-    catchment_id = f"catchment_{label_id:03d}"
+    station_identifier = str(point.get("station_id") or "").strip()
+    if not station_identifier:
+        station_identifier = f"{label_id:03d}"
+    station_identifier = station_identifier.replace(" ", "_")
+    catchment_id = f"catchment_{station_identifier}"
         
     catchments.append(mask)
     catchment_ids.append(catchment_id)
@@ -1133,7 +1045,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_155"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DEA12000"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
