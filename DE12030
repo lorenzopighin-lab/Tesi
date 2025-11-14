@@ -719,9 +719,21 @@ def _format_int_or_empty(value):
 
 
 pixel_table_rows = []
+main_seed_rc = (int(main_seed_row), int(main_seed_col))
+
 for idx, point in enumerate(selected_points, start=1):
     rsnap, csnap = point.get("snapped_index", (None, None))
     xsnap, ysnap = point.get("snapped_coord", (None, None))
+    
+    distance_m = None
+    if rsnap is not None and csnap is not None:
+        try:
+            dr_m = (int(rsnap) - main_seed_rc[0]) * PIXEL_SIZE_METERS
+            dc_m = (int(csnap) - main_seed_rc[1]) * PIXEL_SIZE_METERS
+            distance_m = math.hypot(dr_m, dc_m)
+        except (TypeError, ValueError):
+            distance_m = None
+            
     pixel_table_rows.append(
         {
             "id": idx,
@@ -729,49 +741,44 @@ for idx, point in enumerate(selected_points, start=1):
             "col": csnap,
             "x": xsnap,
             "y": ysnap,
+            "distance_m": distance_m,
         }
     )
 
 if pixel_table_rows:
-    header = ("ID", "Row", "Col", "X", "Y")
+    header = ("ID", "Row", "Col", "X", "Y", "Distance_m")
     col_widths = [max(len(h), 5) for h in header]
+    
+    def _row_values(row):
+        return (
+            _format_int_or_empty(row["id"]),
+            _format_int_or_empty(row["row"]),
+            _format_int_or_empty(row["col"]),
+            _format_float_or_empty(row["x"]),
+            _format_float_or_empty(row["y"]),
+            _format_float_or_empty(row.get("distance_m")),
+        )
 
     for row in pixel_table_rows:
-        col_widths[0] = max(col_widths[0], len(_format_int_or_empty(row["id"])))
-        col_widths[1] = max(col_widths[1], len(_format_int_or_empty(row["row"])))
-        col_widths[2] = max(col_widths[2], len(_format_int_or_empty(row["col"])))
-        col_widths[3] = max(col_widths[3], len(_format_float_or_empty(row["x"])))
-        col_widths[4] = max(col_widths[4], len(_format_float_or_empty(row["y"])))
+        values = _row_values(row)
+        for idx_col, value in enumerate(values):
+            col_widths[idx_col] = max(col_widths[idx_col], len(str(value)))
 
     def _print_row(values):
-        formatted = [
-            str(values[0]).rjust(col_widths[0]),
-            str(values[1]).rjust(col_widths[1]),
-            str(values[2]).rjust(col_widths[2]),
-            str(values[3]).rjust(col_widths[3]),
-            str(values[4]).rjust(col_widths[4]),
-        ]
+        formatted = [str(val).rjust(col_widths[i]) for i, val in enumerate(values)]
         print(" ".join(formatted))
 
     print("\nTabella pixel selezionati (coordinate snappate):")
     _print_row(header)
     print(" ".join("-" * width for width in col_widths))
     for row in pixel_table_rows:
-        _print_row(
-            (
-                _format_int_or_empty(row["id"]),
-                _format_int_or_empty(row["row"]),
-                _format_int_or_empty(row["col"]),
-                _format_float_or_empty(row["x"]),
-                _format_float_or_empty(row["y"]),
-            )
-        )
+        _print_row(_row_values(row))
 
     if PIXEL_TABLE_OUTPUT:
         try:
             with PIXEL_TABLE_OUTPUT.open("w", newline="", encoding="utf-8") as fp:
                 writer = csv.writer(fp)
-                writer.writerow(["pixel_id", "row", "col", "x", "y"])
+                writer.writerow(["pixel_id", "row", "col", "x", "y", "distance_m"])
                 for row in pixel_table_rows:
                     writer.writerow(
                         [
@@ -780,6 +787,7 @@ if pixel_table_rows:
                             row["col"],
                             row["x"],
                             row["y"],
+                            row.get("distance_m"),
                         ]
                     )
             print(
@@ -1125,7 +1133,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_001"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_155"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
