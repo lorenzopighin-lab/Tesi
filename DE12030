@@ -142,7 +142,7 @@ def add_scale_bar(
 
 def _load_station_points(meta_path: Path):
     if not meta_path:
-        return None, None
+        return None, None, None
     try:
         with meta_path.open(newline="", encoding="utf-8") as fp:
             reader = csv.DictReader(fp)
@@ -150,9 +150,10 @@ def _load_station_points(meta_path: Path):
                 print(
                     "Impossibile tracciare le stazioni: il file di metadata non contiene colonne 'lon' e 'lat'."
                 )
-                return None, None
+                return None, None, None
             lons = []
             lats = []
+            labels = []
             for row in reader:
                 try:
                     lon = float(row["lon"])
@@ -162,20 +163,55 @@ def _load_station_points(meta_path: Path):
                 if math.isfinite(lon) and math.isfinite(lat):
                     lons.append(lon)
                     lats.append(lat)
+                    label = None
+                    label_candidates = [
+                        row.get("name"),
+                        row.get("station_name"),
+                        row.get("station"),
+                        row.get("station_id"),
+                        row.get("stationid"),
+                        row.get("id"),
+                        row.get("code"),
+                        row.get("codice"),
+                    ]
+                    for candidate in label_candidates:
+                        if candidate is None:
+                            continue
+                        candidate = str(candidate).strip()
+                        if candidate:
+                            label = candidate
+                            break
+                    if label is None:
+                        for key, value in row.items():
+                            if key in {"lon", "lat"}:
+                                continue
+                            if value is None:
+                                continue
+                            candidate = str(value).strip()
+                            if candidate:
+                                label = candidate
+                                break
+                    labels.append(label)
     except FileNotFoundError:
         print(f"File metadata stazioni non trovato: {meta_path}")
-        return None, None
+        return None, None, None
     except OSError as exc:
         print(f"Impossibile leggere il file metadata delle stazioni '{meta_path}': {exc}")
-        return None, None
+        return None, None, None
 
     if not lons or not lats:
         print("Nessuna coordinata valida trovata nel file di metadata delle stazioni.")
-        return None, None
-    return np.asarray(lons, dtype="float32"), np.asarray(lats, dtype="float32")
+        return None, None, None
+
+    labels = labels if any(label is not None and str(label).strip() for label in labels) else None
+    return (
+        np.asarray(lons, dtype="float32"),
+        np.asarray(lats, dtype="float32"),
+        labels,
+    )
 
 
-station_lons, station_lats = _load_station_points(STATION_META_PATH)
+station_lons, station_lats, station_labels = _load_station_points(STATION_META_PATH)
 
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
@@ -258,6 +294,27 @@ if (
         zorder=5,
         label='stazioni di misura',
     )
+    if station_labels:
+        for lon, lat, label in zip(station_lons, station_lats, station_labels):
+            if not label:
+                continue
+            ax.annotate(
+                label,
+                (lon, lat),
+                xytext=(4, 4),
+                textcoords="offset points",
+                fontsize=8,
+                color="#1b263b",
+                ha="left",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.75,
+                },
+                zorder=6,
+            )
 ax.set_title('DSM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
