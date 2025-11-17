@@ -49,6 +49,7 @@ MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
+TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
@@ -233,22 +234,22 @@ x_snap, y_snap = grid.snap_to_mask(
     acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT,)
 
 
-# --- Visualizzazione accumulo di flusso e punto di chiusura ---
-fig, ax = plt.subplots(figsize=(8, 6))
-fig.patch.set_alpha(0)
-plt.grid('on', zorder=3)
-im = ax.imshow(acc, extent=grid.extent, zorder=2,
-               cmap='cubehelix',
-               norm=colors.LogNorm(1, acc.max()),
-               interpolation='bilinear')
-ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
-           linewidth=1.8, zorder=4, label='Punto')
+# # --- Visualizzazione accumulo di flusso e punto di chiusura ---
+# fig, ax = plt.subplots(figsize=(8, 6))
+# fig.patch.set_alpha(0)
+# plt.grid('on', zorder=3)
+# im = ax.imshow(acc, extent=grid.extent, zorder=2,
+#                cmap='cubehelix',
+#                norm=colors.LogNorm(1, acc.max()),
+#                interpolation='bilinear')
+# ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
+#            linewidth=1.8, zorder=4, label='Punto')
 
-plt.colorbar(im, ax=ax, label='Upstream Cells')
-plt.title('Flow Accumulation', size=14)
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
-plt.tight_layout()
+# plt.colorbar(im, ax=ax, label='Upstream Cells')
+# plt.title('Flow Accumulation', size=14)
+# plt.xlabel('Longitude')
+# plt.ylabel('Latitude')
+# plt.tight_layout()
 
 
 # Delineate the catchment
@@ -355,6 +356,49 @@ ax.imshow(
     cmap=colors.ListedColormap([(1.0, 0.0, 0.0, 0.35)]),
     zorder=4,
 )
+target_station = None
+if (
+    station_lons is not None
+    and station_lats is not None
+    and station_labels is not None
+):
+    for lon, lat, label in zip(station_lons, station_lats, station_labels):
+        if str(label).strip().upper() == TARGET_STATION_ID.upper():
+            target_station = (lon, lat)
+            break
+
+if target_station is not None:
+    ax.scatter(
+        [target_station[0]],
+        [target_station[1]],
+        s=50,
+        marker='^',
+        facecolors='#f9c74f',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=6,
+        label=f"Stazione {TARGET_STATION_ID}",
+    )
+    ax.annotate(
+        TARGET_STATION_ID,
+        target_station,
+        xytext=(6, 6),
+        textcoords="offset points",
+        fontsize=9,
+        color="#1b263b",
+        ha="left",
+        va="bottom",
+        bbox={
+            "boxstyle": "round,pad=0.25",
+            "fc": "white",
+            "ec": "none",
+            "alpha": 0.85,
+        },
+        zorder=7,
+    )
+else:
+    print(f"Stazione di misura '{TARGET_STATION_ID}' non trovata nei metadata.")
+    
 ax.scatter(
     [x_snap],
     [y_snap],
