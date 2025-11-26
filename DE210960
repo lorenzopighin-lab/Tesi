@@ -28,7 +28,7 @@ dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960.tif"
 POUR_POINT = array.array('f', [11.501329,	48.72811])
 SNAP_ACCUMULATION_THRESHOLD = 100000
 BRANCH_ACCUMULATION_THRESHOLD = 8000
-MIN_ACCUMULATION_KM2 = 0
+MIN_ACCUMULATION_KM2 = 10
 
 
 # --- Parametri dimensionali ---
@@ -54,13 +54,12 @@ TARGET_STATION_ID = "DE210910"
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
-# --- Configurazione piogge medie per catchment ---
 PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960")
 STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE210960.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 10000.0
-PRECIP_MIN_STATIONS = 3
+PRECIP_MIN_STATIONS = 4
 PRECIP_MAX_STATIONS = 30
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
@@ -224,24 +223,7 @@ dem = grid.read_raster(os.path.join(dem_path), nodata=-9999, data_name="dem")
 
 flooded_dem = grid.fill_depressions(dem)
 inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-10) #eps è importante
-
-dirmap=(64, 128, 1, 2, 4, 8, 16, 32)
 fdir = grid.flowdir(inflated_dem)
-
-fig = plt.figure(figsize=(8,6))
-fig.patch.set_alpha(0)
-
-plt.imshow(fdir, extent=grid.extent, cmap='viridis', zorder=2)
-boundaries = ([0] + sorted(list(dirmap)))
-plt.colorbar(boundaries= boundaries,
-             values=sorted(dirmap))
-
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
-plt.title('Flow direction grid', size=14)
-plt.grid(zorder=-1)
-plt.tight_layout()
-
 
 # Calcola l'accumulo di flusso a valle di ogni cella.
 acc = grid.accumulation(fdir)
@@ -251,22 +233,22 @@ x_snap, y_snap = grid.snap_to_mask(
     acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT,)
 
 
-# --- Visualizzazione accumulo di flusso e punto di chiusura ---
-fig, ax = plt.subplots(figsize=(8, 6))
-fig.patch.set_alpha(0)
-plt.grid('on', zorder=3)
-im = ax.imshow(acc, extent=grid.extent, zorder=2,
-               cmap='cubehelix',
-               norm=colors.LogNorm(1, acc.max()),
-               interpolation='bilinear')
-ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
-           linewidth=1.8, zorder=4, label='Punto')
+# # --- Visualizzazione accumulo di flusso e punto di chiusura ---
+# fig, ax = plt.subplots(figsize=(8, 6))
+# fig.patch.set_alpha(0)
+# plt.grid('on', zorder=3)
+# im = ax.imshow(acc, extent=grid.extent, zorder=2,
+#                cmap='cubehelix',
+#                norm=colors.LogNorm(1, acc.max()),
+#                interpolation='bilinear')
+# ax.scatter([x_snap], [y_snap], s=80, facecolors='none', edgecolors='red',
+#            linewidth=1.8, zorder=4, label='Punto')
 
-plt.colorbar(im, ax=ax, label='Upstream Cells')
-plt.title('Flow Accumulation', size=14)
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
-plt.tight_layout()
+# plt.colorbar(im, ax=ax, label='Upstream Cells')
+# plt.title('Flow Accumulation', size=14)
+# plt.xlabel('Longitude')
+# plt.ylabel('Latitude')
+# plt.tight_layout()
 
 
 # Delineate the catchment
