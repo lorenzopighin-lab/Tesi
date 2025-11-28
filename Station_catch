@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Oct  6 12:28:45 2025
+Created on Wed Nov 26 16:09:52 2025
 
 @author: loren
 """
-
 import os
 import math
 import csv
@@ -24,11 +23,11 @@ from Krig_4 import compute_catchment_precipitation_series
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif"
-POUR_POINT = array.array('f', [8.710165, 52.197884	])
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210540.tif"
+POUR_POINT = array.array('f', [10.7046389,	48.7715691])
 SNAP_ACCUMULATION_THRESHOLD = 100000
-BRANCH_ACCUMULATION_THRESHOLD = 8000
-MIN_ACCUMULATION_KM2 = 10
+BRANCH_ACCUMULATION_THRESHOLD = 6000
+MIN_ACCUMULATION_KM2 = 25
 
 
 # --- Parametri dimensionali ---
@@ -49,17 +48,17 @@ MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
+TARGET_STATION_ID = "DE111770"
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
-# --- Configurazione piogge medie per catchment ---
-PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")
+PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210540")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE210540.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
-PRECIP_BUFFER_METERS = 10000.0
-PRECIP_MIN_STATIONS = 4
+PRECIP_BUFFER_METERS = 1000.0
+PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
@@ -213,7 +212,7 @@ acc = grid.accumulation(fdir)
 
 # Aggancia il punto di chiusura sul pixel con accumulo sufficiente.
 x_snap, y_snap = grid.snap_to_mask(
-    acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT,)
+    acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT)
 
 
 # --- Visualizzazione accumulo di flusso e punto di chiusura ---
@@ -1043,7 +1042,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DEA11930"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE210550"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
