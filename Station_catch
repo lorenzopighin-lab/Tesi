@@ -430,6 +430,12 @@ d8_to_offset = {
 
 # Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
+# Precalcola gli indici dei pixel che appartengono alla rete (e al bacino, se presente).
+channel_indices = np.argwhere(channel_mask)
+if catch_view is not None and channel_indices.size:
+    channel_indices = channel_indices[
+        catch_view[channel_indices[:, 0], channel_indices[:, 1]]
+    ]
 # Lista di dizionari con le informazioni principali di ciascun pixel selezionato.
 selected_points = []
 
@@ -483,7 +489,28 @@ def _local_max_index(r, c, acc_arr, mask=None, max_radius=5):
         if mask is not None and mask_window[wr, wc]:
             return best_rc
     return best_rc
+def _nearest_channel_index(r, c, channel_cells, max_radius=None):
+    """Restituisce il pixel della rete più vicino alle coordinate indicate."""
 
+    if channel_cells is None:
+        return None
+
+    channel_cells = np.asarray(channel_cells)
+    if channel_cells.size == 0 or channel_cells.ndim != 2 or channel_cells.shape[1] != 2:
+        return None
+
+    target = np.asarray([int(r), int(c)], dtype=np.int64)
+    deltas = channel_cells.astype(np.int64) - target
+    dist2 = np.sum(deltas * deltas, axis=1)
+    if dist2.size == 0:
+        return None
+
+    nearest_idx = int(np.argmin(dist2))
+    if max_radius is not None and dist2[nearest_idx] > max_radius ** 2:
+        return None
+
+    nearest_r, nearest_c = channel_cells[nearest_idx]
+    return int(nearest_r), int(nearest_c)
 # Costruisce il set di punti selezionati corrispondenti alle stazioni sulla rete.
 stations_on_network = []
 stations_outside_network = []
@@ -506,6 +533,9 @@ if station_metadata:
         if not (0 <= rr < H and 0 <= cc < W):
             continue
         
+        rsnap = csnap = None
+        xsnap = ysnap = None
+        
 
         snapped_xy = None
         if channel_mask.any():
@@ -520,13 +550,23 @@ if station_metadata:
                 rsnap_float, csnap_float = rowcol(grid.affine, xsnap, ysnap)
                 rsnap, csnap = int(rsnap_float), int(csnap_float)
             except Exception:
-                rsnap, csnap = rr, cc
-        else:
+                rsnap = csnap = None
+
+        if rsnap is None or csnap is None:
             rsnap, csnap = rr, cc
             xsnap, ysnap = map(float, (lon, lat))
 
-        if not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]:
-            rsnap, csnap = _local_max_index(rr, cc, acc_view, mask=channel_mask, max_radius=10)
+        if (
+            not (0 <= rsnap < H and 0 <= csnap < W)
+            or not channel_mask[rsnap, csnap]
+            or (catch_view is not None and not catch_view[rsnap, csnap])
+        ):
+            nearest_rc = _nearest_channel_index(rr, cc, channel_indices)
+            if nearest_rc is None:
+                nearest_rc = _local_max_index(
+                    rr, cc, acc_view, mask=channel_mask, max_radius=10
+                )
+            rsnap, csnap = nearest_rc
             xsnap, ysnap = rasterio.transform.xy(
                 grid.affine, rsnap, csnap, offset="center"
             )
@@ -1044,7 +1084,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE212290"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE212300"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
