@@ -10,9 +10,11 @@ import itertools
 from typing import List
 import pandas as pd
 from pathlib import Path
+from datetime import datetime
 
 CSV_DIR  = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\kriging_out")  # ← cambia qui
-CSV_FILE = "catchment_precipitation_table.csv"                           # ← o cambia nome
+CSV_FILE = "ammer_precip.csv"                           # ← o cambia nome
+OUTPUT_DIR = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out")
 
 def _safe_mean(values: np.ndarray) -> float:
     if values.size == 0:
@@ -139,6 +141,11 @@ def main() -> None:
         print("No catchment combinations found.")
     else:
         print(results.to_string(index=False))
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = OUTPUT_DIR / f"model_output_{timestamp}.csv"
+        results.to_csv(output_file, index=False)
+        print(f"Tabella salvata in: {output_file}")
 
 
 if __name__ == "__main__":
