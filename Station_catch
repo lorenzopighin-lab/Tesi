@@ -587,6 +587,10 @@ if station_metadata:
         if not (0 <= rr < H and 0 <= cc < W):
             continue
         
+        if catch_view is not None and not catch_view[rr, cc]:
+            stations_outside_network.append(record)
+            continue
+        
         rsnap = csnap = None
         xsnap = ysnap = None
         
@@ -1139,7 +1143,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE21050"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE210550"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
