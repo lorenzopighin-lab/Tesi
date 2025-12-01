@@ -195,6 +195,42 @@ def _load_station_points(meta_path: Path):
 
 station_metadata, station_lons, station_lats = _load_station_points(STATION_META_PATH)
 
+def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
+    """Annota i nomi delle stazioni su un asse Matplotlib.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Asse su cui disegnare le etichette.
+    records : list[dict]
+        Lista di record delle stazioni, ciascuno con chiavi ``station_id``,
+        ``lon`` e ``lat``.
+    text_color : str, optional
+        Colore del testo, di default "black".
+    fontsize : int or float, optional
+        Dimensione del font delle etichette, di default 8.
+    """
+
+    if not records:
+        return
+
+    for rec in records:
+        lon = rec.get("lon")
+        lat = rec.get("lat")
+        label = (rec.get("station_id") or "").strip()
+        if not label or lon is None or lat is None:
+            continue
+
+        ax.annotate(
+            label,
+            (lon, lat),
+            xytext=(4, 4),
+            textcoords="offset points",
+            fontsize=fontsize,
+            color=text_color,
+            bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.7},
+        )
+
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
     profile = src.profile
@@ -276,6 +312,7 @@ if (
         zorder=5,
         label='stazioni di misura',
     )
+    _annotate_station_labels(ax, station_metadata)
 ax.set_title('DSM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
@@ -325,6 +362,24 @@ ax.scatter(
     linewidth=1.8,
     label='Punto',
 )
+if (
+    station_lons is not None
+    and station_lats is not None
+    and getattr(station_lons, "size", 0)
+    and getattr(station_lats, "size", 0)
+):
+    ax.scatter(
+        station_lons,
+        station_lats,
+        s=45,
+        marker='^',
+        facecolors='#f9c74f',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=5,
+        label='stazioni di misura',
+    )
+    _annotate_station_labels(ax, station_metadata)
 ax.set_title('Catchment Outline on DEM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
@@ -1084,7 +1139,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE210560"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE21050"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
