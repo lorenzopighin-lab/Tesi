@@ -846,39 +846,26 @@ for point in selected_points:
         if catch_view is not None and not catch_view[row, col]:
             return None
 
-        mask_local = np.zeros_like(fdir_view, dtype=bool)
-        queue = [(row, col)]
-        mask_local[row, col] = True
-        head = 0
+        try:
+            mask_local = grid.catchment(
+                x=col,
+                y=row,
+                fdir=fdir_view,
+                xytype="index",
+            )
+        except Exception as exc:
+            print(
+                f"Errore nell'estrazione del sottobacino per l'indice "
+                f"({row}, {col}): {exc}"
+            )
+            return None
 
-        while head < len(queue):
-            cr, cc = queue[head]
-            head += 1
+        if mask_local is None:
+            return None
 
-            for dr in (-1, 0, 1):
-                for dc in (-1, 0, 1):
-                    if dr == 0 and dc == 0:
-                        continue
-
-                    nr, nc = cr + dr, cc + dc
-                    if not (0 <= nr < H and 0 <= nc < W):
-                        continue
-                    if mask_local[nr, nc]:
-                        continue
-                    if catch_view is not None and not catch_view[nr, nc]:
-                        continue
-
-                    delta_row = cr - nr
-                    delta_col = cc - nc
-                    flow_code = d8_from_offset.get((delta_row, delta_col))
-                    if flow_code is None:
-                        continue
-
-                    if fdir_view[nr, nc] == 0 or fdir_view[nr, nc] != flow_code:
-                        continue
-
-                    mask_local[nr, nc] = True
-                    queue.append((nr, nc))
+        mask_local = np.asarray(mask_local, dtype=bool)
+        if catch_view is not None:
+            mask_local &= catch_view
 
         if not mask_local.any():
             return None
@@ -1143,7 +1130,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE210550"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE210520"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
