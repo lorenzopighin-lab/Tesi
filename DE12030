@@ -56,7 +56,7 @@ PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DEA12030.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 10000.0
@@ -1350,3 +1350,74 @@ else:
                 )
         except Exception as exc:
             print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
+            
+#%% Rete drenante con stazioni di misura
+fig, ax = plt.subplots(figsize=(9, 7))
+
+# Rete di drenaggio
+for branch in branches["features"]:
+    line = np.asarray(branch["geometry"]["coordinates"])
+    ax.plot(line[:, 0], line[:, 1], color="#277da1", linewidth=1.4, alpha=0.9)
+
+# Stazioni di misura con etichette
+if (
+    station_lons is not None
+    and station_lats is not None
+    and getattr(station_lons, "size", 0)
+    and getattr(station_lats, "size", 0)
+):
+    ax.scatter(
+        station_lons,
+        station_lats,
+        s=55,
+        marker="^",
+        facecolors="#f9c74f",
+        edgecolors="black",
+        linewidth=0.7,
+        zorder=4,
+        label="Stazioni di misura",
+    )
+    if station_labels:
+        for lon, lat, label in zip(station_lons, station_lats, station_labels):
+            if not label:
+                continue
+            ax.annotate(
+                str(label),
+                (lon, lat),
+                xytext=(6, 6),
+                textcoords="offset points",
+                fontsize=8,
+                color="#1b263b",
+                ha="left",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.25",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.85,
+                },
+                zorder=5,
+            )
+
+# Punto di chiusura
+ax.scatter(
+    [x_snap],
+    [y_snap],
+    s=80,
+    facecolors="none",
+    edgecolors="red",
+    linewidth=1.6,
+    zorder=5,
+    label="Sezione di chiusura",
+)
+
+ax.set_xlim(grid.bbox[0], grid.bbox[2])
+ax.set_ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect("equal")
+ax.set_title("Rete drenante e stazioni di misura", fontsize=13)
+ax.set_xlabel("Longitude")
+ax.set_ylabel("Latitude")
+add_scale_bar(ax, grid.affine, location="lower left")
+ax.legend(loc="upper right")
+plt.tight_layout()
+plt.show()
