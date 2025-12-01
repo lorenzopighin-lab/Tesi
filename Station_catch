@@ -396,6 +396,36 @@ thr_cells = math.ceil((MIN_ACCUMULATION_KM2 * 1e6) / cell_area_m2)
 # Seleziona i pixel con accumulo sufficiente per essere considerati candidati.
 mask_acc = acc_view >= thr_cells
 
+# Offsets per analizzare i vicini secondo lo schema D8.
+neighbor_offsets = [
+    (-1, -1), (-1, 0), (-1, 1),
+    (0, -1),           (0, 1),
+    (1, -1),  (1, 0),  (1, 1),
+]
+
+# Mapping tra offset e codici di direzione del flusso D8.
+d8_from_offset = {
+    (-1, -1): 32,
+    (-1, 0): 64,
+    (-1, 1): 128,
+    (0, -1): 16,
+    (0, 1): 1,
+    (1, -1): 8,
+    (1, 0): 4,
+    (1, 1): 2,
+}
+
+# Mapping inverso dai codici D8 all'offset.
+d8_to_offset = {
+    1: (0, 1),
+    2: (1, 1),
+    4: (1, 0),
+    8: (1, -1),
+    16: (0, -1),
+    32: (-1, -1),
+    64: (-1, 0),
+    128: (-1, 1),
+}
 
 # Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
@@ -747,26 +777,92 @@ for point in selected_points:
         failed_points.append({"point": point, "reason": "accumulation nulla"})
         continue
 
-    try:
-        catch_mask_full = grid.catchment(
-            x=x_snap,
-            y=y_snap,
-            fdir=fdir,
-            xytype="coordinate",
+    def _compute_catchment(row, col):
+        """Estrae l'area contribuente a partire da una cella della rete."""
+
+        row = int(row)
+        col = int(col)
+        if not (0 <= row < H and 0 <= col < W):
+            return None
+        if catch_view is not None and not catch_view[row, col]:
+            return None
+
+        mask_local = np.zeros_like(fdir_view, dtype=bool)
+        queue = [(row, col)]
+        mask_local[row, col] = True
+        head = 0
+
+        while head < len(queue):
+            cr, cc = queue[head]
+            head += 1
+
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+
+                    nr, nc = cr + dr, cc + dc
+                    if not (0 <= nr < H and 0 <= nc < W):
+                        continue
+                    if mask_local[nr, nc]:
+                        continue
+                    if catch_view is not None and not catch_view[nr, nc]:
+                        continue
+
+                    delta_row = cr - nr
+                    delta_col = cc - nc
+                    flow_code = d8_from_offset.get((delta_row, delta_col))
+                    if flow_code is None:
+                        continue
+
+                    if fdir_view[nr, nc] == 0 or fdir_view[nr, nc] != flow_code:
+                        continue
+
+                    mask_local[nr, nc] = True
+                    queue.append((nr, nc))
+
+        if not mask_local.any():
+            return None
+
+        return mask_local
+
+    mask = _compute_catchment(rsnap, csnap)
+
+    if mask is None:
+        alt_r, alt_c = _local_max_index(
+            rsnap, csnap, acc_view, mask=channel_mask, max_radius=10
         )
-    except Exception as exc:
+        
+        if (alt_r, alt_c) != (rsnap, csnap):
+            rsnap, csnap = int(alt_r), int(alt_c)
+            x_snap, y_snap = rasterio.transform.xy(
+                grid.affine, rsnap, csnap, offset='center'
+            )
+            expected_area = acc_view[rsnap, csnap] * cell_area_m2
+            if expected_area > 0:
+                mask = _compute_catchment(rsnap, csnap)
+
+    if mask is None:
+        x_orig, y_orig = point.get("initial_coord", (None, None))
+        r_orig, c_orig = point["row"], point["col"]
+        if (
+            x_orig is not None
+            and y_orig is not None
+            and 0 <= r_orig < H
+            and 0 <= c_orig < W
+        ):
+            expected_area_orig = acc_view[r_orig, c_orig] * cell_area_m2
+            if expected_area_orig > 0:
+                candidate_mask = _compute_catchment(r_orig, c_orig)
+                if candidate_mask is not None:
+                    mask = candidate_mask
+                    rsnap, csnap = int(r_orig), int(c_orig)
+                    x_snap, y_snap = float(x_orig), float(y_orig)
+                    expected_area = expected_area_orig
+
+    if mask is None:
         point["catchment_found"] = False
-        failed_points.append({"point": point, "reason": f"errore catchment: {exc}"})
-        continue
-
-
-    mask = grid.view(catch_mask_full).astype(bool)
-    if catch_view is not None:
-        mask &= catch_view
-
-    if not mask.any():
-        point["catchment_found"] = False
-        failed_points.append({"point": point, "reason": "catchment vuoto"})
+        failed_points.append({"point": point, "reason": "catchment non trovato"})
         continue
     
     point["catchment_found"] = True
@@ -988,7 +1084,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE210550"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE210560"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
