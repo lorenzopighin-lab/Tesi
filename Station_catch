@@ -484,8 +484,9 @@ d8_to_offset = {
 
 # Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
+snap_mask = channel_mask & (acc_view >= SNAP_ACCUMULATION_THRESHOLD)
 # Precalcola gli indici dei pixel che appartengono alla rete (e al bacino, se presente).
-channel_indices = np.argwhere(channel_mask)
+channel_indices = np.argwhere(snap_mask)
 if catch_view is not None and channel_indices.size:
     channel_indices = channel_indices[
         catch_view[channel_indices[:, 0], channel_indices[:, 1]]
@@ -596,9 +597,9 @@ if station_metadata:
         
 
         snapped_xy = None
-        if channel_mask.any():
+        if snap_mask.any():
             try:
-                snapped_xy = grid.snap_to_mask(channel_mask, (lon, lat))
+                snapped_xy = grid.snap_to_mask(snap_mask, (lon, lat))
             except Exception:
                 snapped_xy = None
 
@@ -616,13 +617,13 @@ if station_metadata:
 
         if (
             not (0 <= rsnap < H and 0 <= csnap < W)
-            or not channel_mask[rsnap, csnap]
+            or not snap_mask[rsnap, csnap]
             or (catch_view is not None and not catch_view[rsnap, csnap])
         ):
             nearest_rc = _nearest_channel_index(rr, cc, channel_indices)
             if nearest_rc is None:
                 nearest_rc = _local_max_index(
-                    rr, cc, acc_view, mask=channel_mask, max_radius=10
+                    rr, cc, acc_view, mask=snap_mask, max_radius=10
                 )
             rsnap, csnap = nearest_rc
             xsnap, ysnap = rasterio.transform.xy(
@@ -631,7 +632,7 @@ if station_metadata:
             
         if not (0 <= rsnap < H and 0 <= csnap < W):
             continue
-        if not channel_mask[rsnap, csnap]:
+        if not snap_mask[rsnap, csnap]:
             stations_outside_network.append(record)
             continue
         if catch_view is not None and not catch_view[rsnap, csnap]:
@@ -1245,5 +1246,4 @@ else:
                     "Nessuna serie di precipitazione calcolata: verificare dati di input o catchments."
                 )
         except Exception as exc:
-            print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")# -*- coding: utf-8 -*-
-
+            print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
