@@ -397,6 +397,7 @@ def compute_catchment_precipitation_series(
     selected_catchment_ids: Optional[Sequence[str]] = None,
     csv_dir: Path = CSV_DIR,
     station_meta: Path = STATION_META,
+    dtm_path: Optional[Path] = None,
     dtm_crs: Optional[str] = None,
     start_date: str = "2000-01-01",
     end_date: str = "2020-12-31",
@@ -459,7 +460,8 @@ def compute_catchment_precipitation_series(
 
     csv_dir = Path(csv_dir)
     station_meta = Path(station_meta)
-
+    dtm_path = Path(dtm_path) if dtm_path is not None else DTM_PATH
+    
     meta = read_station_metadata(station_meta)
     ts_long = read_station_csvs(csv_dir)
     ts_wide = pivot_timeseries(ts_long, fill_missing=fill_missing)
@@ -468,7 +470,7 @@ def compute_catchment_precipitation_series(
     ts_wide = ts_wide.reindex(date_index)
 
     if dtm_crs is None:
-        _, _, _, _, dtm_crs = grid_from_dtm(DTM_PATH)
+        _, _, _, _, dtm_crs = grid_from_dtm(dtm_path)
     if dtm_crs is None:
         raise ValueError("Il DTM deve avere un CRS definito per proiettare le stazioni.")
 
@@ -527,6 +529,12 @@ def compute_catchment_precipitation_series(
     df = pd.DataFrame(results, index=date_index)
     df.index.name = "date"
     df = df.reset_index()
+    
+    # Arrotonda le colonne numeriche a due decimali per garantire al massimo
+    # due cifre dopo la virgola nelle serie di precipitazione in output.
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols) > 0:
+       df[numeric_cols] = df[numeric_cols].round(2)
     
     for cid, duration in catchment_durations.items():
         if cid not in contexts:
