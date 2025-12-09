@@ -18,16 +18,16 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from Krig_1 import compute_catchment_precipitation_series
+from Krig_4 import compute_catchment_precipitation_series
 
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE811100.tif"
-POUR_POINT = array.array('f', [13.026552, 53.91635	])
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960.tif"
+POUR_POINT = array.array('f', [11.501329,	48.728112])
 SNAP_ACCUMULATION_THRESHOLD = 100000
-BRANCH_ACCUMULATION_THRESHOLD = 8000
-MIN_ACCUMULATION_KM2 = 10
+BRANCH_ACCUMULATION_THRESHOLD = 6000
+MIN_ACCUMULATION_KM2 = 25
 
 
 # --- Parametri dimensionali ---
@@ -48,18 +48,17 @@ MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
-TARGET_STATION_ID = ""
+TARGET_STATION_ID = "DE210910"
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
-# --- Configurazione piogge medie per catchment ---
-PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE811100")
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE811100.csv")
+PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE210960")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE210960.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 10000.0
-PRECIP_MIN_STATIONS = 4
+PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
@@ -241,7 +240,7 @@ grid = Grid.from_raster(os.path.join(dem_path), nodata=-9999, data_name="grid da
 dem = grid.read_raster(os.path.join(dem_path), nodata=-9999, data_name="dem")
 
 flooded_dem = grid.fill_depressions(dem)
-inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-11) #eps è importante
+inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-10) #eps è importante
 fdir = grid.flowdir(inflated_dem)
 
 # Calcola l'accumulo di flusso a valle di ogni cella.
@@ -1132,7 +1131,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DEA11920"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE210940"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
