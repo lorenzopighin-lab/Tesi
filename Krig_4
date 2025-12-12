@@ -216,6 +216,33 @@ def _mask_to_coords(mask: np.ndarray, transform: Affine) -> np.ndarray:
     xs, ys = rasterio.transform.xy(transform, rows, cols, offset="center")
     return np.column_stack([np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)])
 
+def aggregate_mask_to_blocks(
+    mask: np.ndarray, transform: Affine, factor: int = 3
+) -> Tuple[np.ndarray, Affine]:
+    """Aggregate a boolean mask into larger square blocks.
+
+    The function groups pixels in ``factor x factor`` blocks (default 3x3) and
+    marks the aggregated pixel as ``True`` if at least one of the original
+    pixels is ``True``. The output transform is scaled accordingly so that the
+    georeferencing remains consistent with the coarser grid.
+    """
+
+    if factor <= 1:
+        return np.asarray(mask, dtype=bool), transform
+
+    mask = np.asarray(mask, dtype=bool)
+    height, width = mask.shape
+    new_h = (height // factor) * factor
+    new_w = (width // factor) * factor
+
+    if new_h == 0 or new_w == 0:
+        return np.zeros((0, 0), dtype=bool), transform * Affine.scale(factor)
+
+    trimmed = mask[:new_h, :new_w]
+    reshaped = trimmed.reshape(new_h // factor, factor, new_w // factor, factor)
+    aggregated = reshaped.any(axis=(1, 3))
+    new_transform = transform * Affine.scale(factor)
+    return aggregated, new_transform
 
 def _compute_boundary_coords(mask: np.ndarray, transform: Affine) -> np.ndarray:
     if mask is None or not mask.any():
@@ -335,7 +362,8 @@ def _krige_catchment_day(
     variogram_params,
     nlags: int,
     min_stations: int,
-) -> float:
+    return_predictions: bool = False,
+):
     if context.cell_coords.size == 0:
         return float("nan")
 
@@ -352,7 +380,10 @@ def _krige_catchment_day(
         return float("nan")
 
     if np.allclose(zs, zs[0], atol=1e-10, rtol=0):
-        return float(zs[0])
+        const_val = float(zs[0])
+        if return_predictions:
+            return np.full(context.cell_coords.shape[0], const_val, dtype=float)
+        return const_val
 
     try:
         OK = OrdinaryKriging(
@@ -375,19 +406,31 @@ def _krige_catchment_day(
         if np.ma.isMaskedArray(preds):
             preds = preds.filled(np.nan)
         if preds.size == 0:
-            return float("nan")
+            return float("nan") if not return_predictions else preds
+        if return_predictions:
+            return preds
         return float(np.nanmean(preds))
     except Exception:
         weights = context.station_weights[mask_valid]
         if weights.size == 0 or not np.isfinite(weights).any():
-            return float(np.nan)
+            fallback = float(np.nan)
+            return (
+                np.full(context.cell_coords.shape[0], fallback)
+                if return_predictions
+                else fallback
+            )
         if weights.sum() > 0:
             weights = weights / weights.sum()
         print(
             f"[WARN] {date.date()}: kriging fallito per il bacino "
             f"{context.catchment_id}, uso media pesata."
         )
-        return float(np.dot(weights, zs))
+        fallback = float(np.dot(weights, zs))
+        return (
+            np.full(context.cell_coords.shape[0], fallback)
+            if return_predictions
+            else fallback
+        )
 
 
 def compute_catchment_precipitation_series(
@@ -410,6 +453,7 @@ def compute_catchment_precipitation_series(
     variogram_model: str = VARIOGRAM_MODEL,
     variogram_params=VARIOGRAM_PARAMS,
     nlags: int = N_LAGS,
+    aggregation_factor: int = 3,
 ) -> pd.DataFrame:
     
     def _normalize_requested_ids(raw_ids: Optional[Sequence[str]]) -> List[str]:
@@ -487,16 +531,36 @@ def compute_catchment_precipitation_series(
     ts_wide = ts_wide[common]
     station_xy = meta.loc[common, ["x", "y"]]
 
-    contexts, missing = _prepare_catchment_contexts(
-        catchment_masks=catchment_masks,
-        transform=transform,
+    catchment_masks = [np.asarray(mask, dtype=bool) for mask in catchment_masks]
+    agg_transform = transform
+    if aggregation_factor and aggregation_factor > 1:
+        aggregated_masks = []
+        for mask in catchment_masks:
+            aggregated, agg_transform = aggregate_mask_to_blocks(
+                mask, transform, aggregation_factor
+            )
+            aggregated_masks.append(aggregated)
+        catchment_masks = aggregated_masks
+
+    basin_mask = np.logical_or.reduce(catchment_masks)
+    if basin_mask is None or not basin_mask.any():
+        return pd.DataFrame(columns=["date"])
+
+    basin_rows, basin_cols = np.nonzero(basin_mask)
+
+    basin_contexts, missing = _prepare_catchment_contexts(
+        catchment_masks=[basin_mask],
+        transform=agg_transform,
         station_xy=station_xy,
-        catchment_ids=catchment_ids,
+        catchment_ids=["basin"],
         buffer_distance=buffer_distance,
         max_stations=max_stations,
         weight_eps=weight_eps,
         inside_bonus=inside_bonus,
     )
+    basin_context = basin_contexts.get("basin")
+    if basin_context is None:
+        return pd.DataFrame(columns=["date"])
 
     if catchment_ids is None:
         all_ids = [f"catchment_{i + 1:03d}" for i in range(len(catchment_masks))]
@@ -508,23 +572,32 @@ def compute_catchment_precipitation_series(
 
     for date in date_index:
         day_values = ts_wide.loc[date]
-        for cid in all_ids:
-            context = contexts.get(cid)
-            if context is None:
+        start_time = time.perf_counter()
+        basin_preds = _krige_catchment_day(
+            date=date,
+            day_values=day_values,
+            context=basin_context,
+            variogram_model=variogram_model,
+            variogram_params=variogram_params,
+            nlags=nlags,
+            min_stations=min_stations,
+            return_predictions=True,
+        )
+
+        basin_grid = np.full(basin_mask.shape, np.nan)
+        if isinstance(basin_preds, np.ndarray):
+            basin_grid[basin_rows, basin_cols] = basin_preds
+        else:
+            basin_grid[basin_rows, basin_cols] = basin_preds
+
+        elapsed = time.perf_counter() - start_time
+        for cid, mask in zip(all_ids, catchment_masks):
+            if mask is None or not np.any(mask):
                 results[cid].append(np.nan)
                 continue
-            start_time = time.perf_counter()
-            value = _krige_catchment_day(
-                date=date,
-                day_values=day_values,
-                context=context,
-                variogram_model=variogram_model,
-                variogram_params=variogram_params,
-                nlags=nlags,
-                min_stations=min_stations,
-            )
-            catchment_durations[cid] += time.perf_counter() - start_time
-            results[cid].append(value)
+            values = basin_grid[mask]
+            results[cid].append(float(np.nanmean(values)))
+            catchment_durations[cid] += elapsed
 
     df = pd.DataFrame(results, index=date_index)
     df.index.name = "date"
@@ -534,11 +607,9 @@ def compute_catchment_precipitation_series(
     # due cifre dopo la virgola nelle serie di precipitazione in output.
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     if len(numeric_cols) > 0:
-       df[numeric_cols] = df[numeric_cols].round(2)
+        df[numeric_cols] = df[numeric_cols].round(2)
     
     for cid, duration in catchment_durations.items():
-        if cid not in contexts:
-            continue
         print(
             f"Interpolazione completata per il bacino {cid} in "
             f"{duration:.2f} secondi"
@@ -553,7 +624,108 @@ def compute_catchment_precipitation_series(
 
     return df
 
+# ==============================
+# Basin-wide kriging helper
+# ==============================
 
+
+def krige_basin_precipitation_grid(
+    date: str,
+    catchment_masks: Sequence[np.ndarray],
+    transform: Affine,
+    csv_dir: Path = CSV_DIR,
+    station_meta: Path = STATION_META,
+    dtm_path: Optional[Path] = None,
+    dtm_crs: Optional[str] = None,
+    buffer_distance: float = BUFFER_DISTANCE_METERS,
+    max_stations: Optional[int] = MAX_STATIONS_PER_CATCHMENT,
+    weight_eps: float = WEIGHT_DISTANCE_EPS,
+    inside_bonus: float = INSIDE_WEIGHT_BONUS,
+    variogram_model: str = VARIOGRAM_MODEL,
+    variogram_params=VARIOGRAM_PARAMS,
+    nlags: int = N_LAGS,
+    aggregation_factor: int = 3,
+) -> Tuple[np.ndarray, Affine]:
+    """Esegue il kriging su tutto il bacino (unione dei catchment) per una data."""
+
+    target_date = pd.to_datetime(date)
+    if pd.isna(target_date):
+        raise ValueError(f"Data non valida per il kriging: {date}")
+
+    csv_dir = Path(csv_dir)
+    station_meta = Path(station_meta)
+    dtm_path = Path(dtm_path) if dtm_path is not None else DTM_PATH
+
+    meta = read_station_metadata(station_meta)
+    ts_long = read_station_csvs(csv_dir)
+    ts_wide = pivot_timeseries(ts_long, fill_missing=FILL_MISSING)
+
+    ts_wide = ts_wide.reindex(pd.DatetimeIndex([target_date]))
+
+    if dtm_crs is None:
+        _, _, _, _, dtm_crs = grid_from_dtm(dtm_path)
+    if dtm_crs is None:
+        raise ValueError("Il DTM deve avere un CRS definito per proiettare le stazioni.")
+
+    x, y = project_lonlat_to_crs(meta["lon"].to_numpy(), meta["lat"].to_numpy(), dtm_crs)
+    meta = meta.set_index("station_id").copy()
+    meta["x"], meta["y"] = x, y
+
+    common = meta.index.intersection(ts_wide.columns)
+    if common.empty:
+        raise ValueError("Nessuna stazione comune tra metadati e serie di precipitazione.")
+
+    ts_wide = ts_wide[common]
+    station_xy = meta.loc[common, ["x", "y"]]
+
+    catchment_masks = [np.asarray(mask, dtype=bool) for mask in catchment_masks]
+    agg_transform = transform
+    if aggregation_factor and aggregation_factor > 1:
+        aggregated_masks = []
+        for mask in catchment_masks:
+            aggregated, agg_transform = aggregate_mask_to_blocks(
+                mask, transform, aggregation_factor
+            )
+            aggregated_masks.append(aggregated)
+        catchment_masks = aggregated_masks
+
+    basin_mask = np.logical_or.reduce(catchment_masks)
+    if basin_mask is None or not basin_mask.any():
+        raise ValueError("Il bacino aggregato non contiene pixel validi.")
+
+    basin_rows, basin_cols = np.nonzero(basin_mask)
+
+    basin_contexts, missing = _prepare_catchment_contexts(
+        catchment_masks=[basin_mask],
+        transform=agg_transform,
+        station_xy=station_xy,
+        catchment_ids=["basin"],
+        buffer_distance=buffer_distance,
+        max_stations=max_stations,
+        weight_eps=weight_eps,
+        inside_bonus=inside_bonus,
+    )
+
+    if missing:
+        raise ValueError(
+            "Stazioni insufficienti nel buffer del bacino per eseguire il kriging."
+        )
+
+    basin_context = basin_contexts.get("basin")
+    basin_preds = _krige_catchment_day(
+        date=target_date,
+        day_values=ts_wide.loc[target_date],
+        context=basin_context,
+        variogram_model=variogram_model,
+        variogram_params=variogram_params,
+        nlags=nlags,
+        min_stations=MIN_STATIONS_PER_CATCHMENT,
+        return_predictions=True,
+    )
+
+    basin_grid = np.full(basin_mask.shape, np.nan)
+    basin_grid[basin_rows, basin_cols] = basin_preds
+    return basin_grid, agg_transform
 # ==============================
 # Main workflow
 # ==============================
