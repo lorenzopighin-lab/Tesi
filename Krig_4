@@ -79,6 +79,27 @@ def read_station_metadata(meta_path: Path) -> pd.DataFrame:
         raise ValueError(f"Il file metadata deve contenere colonne {required}. Trovate: {set(df.columns)}")
     return df
 
+def _parse_date_column(date_series: pd.Series) -> pd.Series:
+    """Converte una colonna data gestendo formati giorno/mese e avvisa se ci sono valori ignorati."""
+
+    first_pass = pd.to_datetime(date_series, utc=True, errors="coerce")
+    if first_pass.isna().any():
+        # Alcuni dataset storici usano il formato giorno/mese/anno: prova a interpretarlo
+        dayfirst_pass = pd.to_datetime(date_series, utc=True, dayfirst=True, errors="coerce")
+        if dayfirst_pass.notna().sum() > first_pass.notna().sum():
+            parsed = dayfirst_pass
+        else:
+            parsed = first_pass
+    else:
+        parsed = first_pass
+
+    invalid_count = int(parsed.isna().sum())
+    parsed = parsed.dt.tz_convert(None)
+
+    if invalid_count:
+        print(f"Avviso: {invalid_count} righe con date non interpretabili sono state scartate.")
+
+    return parsed
 
 def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
     """Legge tutti i CSV in cartella e ritorna un DataFrame long: [date, station_id, precipitation_mean]."""
@@ -88,7 +109,12 @@ def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
         df = pd.read_csv(fp)
         if "date" not in df.columns or "precipitation_mean" not in df.columns:
             raise ValueError(f"'{fp}' deve contenere colonne 'date' e 'precipitation_mean'.")
-        df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_convert(None)
+        df["date"] = _parse_date_column(df["date"])
+        df = df.dropna(subset=["date"])  # rimuove eventuali righe con date non interpretabili
+        if df.empty:
+            raise ValueError(
+                f"'{fp}' non contiene date interpretabili. Verifica il formato (es. YYYY-MM-DD o DD/MM/YYYY)."
+            )
         df = df[["date", "precipitation_mean"]].copy()
         df["station_id"] = station_id
         rows.append(df)
