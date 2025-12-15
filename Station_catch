@@ -51,7 +51,7 @@ MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
-TARGET_STATION_ID = "DE111770"
+TARGET_STATION_ID = "DE412310"
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
@@ -332,7 +332,8 @@ catch = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, xytype='coordinate')
 
 n_pixels = int(np.count_nonzero(catch))   # equivalente a int(catch.sum())
 print("Pixel nel catchment:", n_pixels)
-
+main_catchment_area_m2 = n_pixels * PIXEL_AREA_M2
+main_catchment_area_km2 = main_catchment_area_m2 / 1e6
 #%%%plots
 # DEM
 inflated_dem_masked = np.ma.masked_invalid(inflated_dem)
@@ -1189,7 +1190,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE411270"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE411150"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
