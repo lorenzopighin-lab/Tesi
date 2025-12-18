@@ -26,10 +26,13 @@ from Krig_1 import (
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE910180.tif"
-POUR_POINT = array.array('f', [7.9,	52.39])
-SNAP_ACCUMULATION_THRESHOLD = 6000
-BRANCH_ACCUMULATION_THRESHOLD = 5000
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE811100.tif"
+POUR_POINT = array.array('f', [13.033280, 53.898768 	])
+# Soglia di accumulo per lo snap della sezione di chiusura principale.
+MAIN_SNAP_ACCUMULATION_THRESHOLD = 60000
+# Soglia di accumulo per lo snap dei pixel delle stazioni lungo la rete.
+STATION_SNAP_ACCUMULATION_THRESHOLD = 5000
+BRANCH_ACCUMULATION_THRESHOLD = 8000
 MIN_ACCUMULATION_KM2 = 10
 
 
@@ -57,8 +60,8 @@ TARGET_STATION_ID = ""
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
-PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE910180")
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE910180.csv")
+PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE811100")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE811100.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 100000.0
@@ -299,7 +302,7 @@ grid = Grid.from_raster(os.path.join(dem_path), nodata=-9999, data_name="grid da
 dem = grid.read_raster(os.path.join(dem_path), nodata=-9999, data_name="dem")
 
 flooded_dem = grid.fill_depressions(dem)
-inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-10) #eps è importante
+inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-11) #eps è importante
 fdir = grid.flowdir(inflated_dem)
 
 # Calcola l'accumulo di flusso a valle di ogni cella.
@@ -307,7 +310,7 @@ acc = grid.accumulation(fdir)
 
 # Aggancia il punto di chiusura sul pixel con accumulo sufficiente.
 x_snap, y_snap = grid.snap_to_mask(
-    acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT)
+    acc > MAIN_SNAP_ACCUMULATION_THRESHOLD, POUR_POINT)
 
 
 # --- Visualizzazione accumulo di flusso e punto di chiusura ---
@@ -544,7 +547,7 @@ d8_to_offset = {
 
 # Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
-snap_mask = channel_mask & (acc_view >= SNAP_ACCUMULATION_THRESHOLD)
+snap_mask = channel_mask & (acc_view >= STATION_SNAP_ACCUMULATION_THRESHOLD)
 # Precalcola gli indici dei pixel che appartengono alla rete (e al bacino, se presente).
 channel_indices = np.argwhere(snap_mask)
 if catch_view is not None and channel_indices.size:
@@ -1191,7 +1194,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE411150"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE811530"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
