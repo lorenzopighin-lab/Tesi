@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import numpy as np
+import pandas as pd
 import rasterio
 import seaborn as sns
 from pathlib import Path
@@ -73,6 +74,7 @@ PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da inte
 KRIGING_CATCHMENT_IDS = None
 PROMPT_PLOT_PRECIPITATION = True
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
+PLOT_PRECIPITATION_RANGE = None  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -153,8 +155,13 @@ def _extent_from_transform(transform, width: int, height: int):
     return [x_min, x_max, y_min, y_max]
 
 
-def plot_precipitation_map(date_text: str, grid_data: np.ndarray, transform):
-    """Crea un plot con i pixel colorati in base alle precipitazioni."""
+def plot_precipitation_map(
+    date_text: str,
+    grid_data: np.ndarray,
+    transform,
+    station_data: pd.DataFrame | None = None,
+):
+    """Crea un plot con i pixel colorati in base alle precipitazioni e le stazioni misurate."""
 
     if grid_data.size == 0:
         print("Nessun dato di precipitazione da plottare.")
@@ -163,19 +170,32 @@ def plot_precipitation_map(date_text: str, grid_data: np.ndarray, transform):
     height, width = grid_data.shape
     extent = _extent_from_transform(transform, width, height)
 
-    vmax = float(np.nanmax(grid_data)) if np.isfinite(grid_data).any() else 0.0
+    all_values = []
+    if np.isfinite(grid_data).any():
+        all_values.append(float(np.nanmax(grid_data)))
+
+    if station_data is not None and not station_data.empty:
+        station_vals = station_data.get("precipitation")
+        if station_vals is not None:
+            finite_station = station_vals[np.isfinite(station_vals)]
+            if finite_station.size:
+                all_values.append(float(np.nanmax(finite_station)))
+
+    vmax = max(all_values) if all_values else 0.0
     vmin = 0.0
     if vmax <= vmin:
         vmax = vmin + 1.0
+        
+    cmap = plt.get_cmap("Blues")
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
 
     fig, ax = plt.subplots(figsize=(10, 8))
     img = ax.imshow(
         grid_data,
         origin="upper",
         extent=extent,
-        cmap="Blues",
-        vmin=vmin,
-        vmax=vmax,
+        cmap=cmap,
+        norm=norm,
     )
 
     basin_mask = np.isfinite(grid_data)
@@ -187,6 +207,28 @@ def plot_precipitation_map(date_text: str, grid_data: np.ndarray, transform):
             cmap="Greys",
             alpha=0.15,
         )
+        
+    if station_data is not None and not station_data.empty:
+        finite_precip = station_data["precipitation"].to_numpy()
+        point_colors = []
+        for val in finite_precip:
+            if np.isfinite(val):
+                point_colors.append(cmap(norm(val)))
+            else:
+                point_colors.append("#9e9e9e")
+
+        ax.scatter(
+            station_data["lon"],
+            station_data["lat"],
+            s=55,
+            marker="o",
+            facecolor=point_colors,
+            edgecolor="black",
+            linewidth=0.6,
+            zorder=6,
+            label="Stazioni gauge",
+        )
+        _annotate_station_labels(ax, station_data)
 
     ax.set_xlabel("x")
     ax.set_ylabel("y")
@@ -356,6 +398,25 @@ def _filter_stations_in_catchment(records, catch_mask, transform):
 
     return inside_records
 
+def _build_plot_date_list(
+    date_string: str | None = None, date_range: tuple[str, str] | None = None
+) -> list[str]:
+    dates: list[str] = []
+
+    if date_range and len(date_range) == 2:
+        start_raw, end_raw = date_range
+        start = pd.to_datetime(start_raw, errors="coerce")
+        end = pd.to_datetime(end_raw, errors="coerce")
+        if not (pd.isna(start) or pd.isna(end)):
+            for ts in pd.date_range(start=start.normalize(), end=end.normalize(), freq="D"):
+                dates.append(ts.strftime("%Y-%m-%d"))
+
+    if date_string and not dates:
+        ts = pd.to_datetime(date_string, errors="coerce")
+        if not pd.isna(ts):
+            dates.append(ts.strftime("%Y-%m-%d"))
+
+    return dates
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
     profile = src.profile
@@ -1380,22 +1441,35 @@ else:
         except Exception as exc:
             print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
             
-        plot_date = PLOT_PRECIPITATION_DATE
+        plot_dates = _build_plot_date_list(
+            date_string=PLOT_PRECIPITATION_DATE,
+            date_range=PLOT_PRECIPITATION_RANGE,
+        )
+
         if PROMPT_PLOT_PRECIPITATION:
             try:
                 user_plot_date = input(
-                    "Inserisci una data (YYYY-MM-DD) per plottare le precipitazioni sul bacino "
-                    "oppure premi invio per saltare: "
+                    "Inserisci una data singola (YYYY-MM-DD) o un intervallo "
+                    "YYYY-MM-DD:YYYY-MM-DD per plottare le precipitazioni sul bacino "
                 )
             except EOFError:
                 user_plot_date = ""
             user_plot_date = user_plot_date.strip()
+            
             if user_plot_date:
-                plot_date = user_plot_date
+                if ":" in user_plot_date:
+                    start_str, end_str = user_plot_date.split(":", 1)
+                    plot_dates = _build_plot_date_list(
+                        date_range=(start_str.strip(), end_str.strip())
+                    )
+                else:
+                    plot_dates = _build_plot_date_list(date_string=user_plot_date)
 
-        if plot_date:
+        plot_dates = list(dict.fromkeys(plot_dates))
+
+        for plot_date in plot_dates:
             try:
-                basin_grid, agg_transform = krige_basin_precipitation_grid(
+                basin_grid, agg_transform, station_plot_data = krige_basin_precipitation_grid(
                     date=plot_date,
                     catchment_masks=selected_masks,
                     transform=grid.affine,
@@ -1407,6 +1481,8 @@ else:
                     max_stations=PRECIP_MAX_STATIONS,
                     aggregation_factor=AGGREGATION_FACTOR,
                 )
-                plot_precipitation_map(plot_date, basin_grid, agg_transform)
+                plot_precipitation_map(
+                   plot_date, basin_grid, agg_transform, station_plot_data
+               )
             except Exception as exc:
-                print(f"Impossibile generare il plot delle precipitazioni: {exc}")
+                print(f"Impossibile generare il plot delle precipitazioni per {plot_date}: {exc}")
