@@ -26,14 +26,11 @@ from Krig_1 import (
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE811100.tif"
-POUR_POINT = array.array('f', [13.033280, 53.898768 	])
-# Soglia di accumulo per lo snap della sezione di chiusura principale.
-MAIN_SNAP_ACCUMULATION_THRESHOLD = 60000
-# Soglia di accumulo per lo snap dei pixel delle stazioni lungo la rete.
-STATION_SNAP_ACCUMULATION_THRESHOLD = 5000
-BRANCH_ACCUMULATION_THRESHOLD = 8000
-MIN_ACCUMULATION_KM2 = 10
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE411220.tif"
+POUR_POINT = array.array('f', [13.116304, 52.362773])
+SNAP_ACCUMULATION_THRESHOLD = 100000
+BRANCH_ACCUMULATION_THRESHOLD = 6000
+MIN_ACCUMULATION_KM2 = 25
 
 
 # --- Parametri dimensionali ---
@@ -54,17 +51,16 @@ MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
-TARGET_STATION_ID = ""
+TARGET_STATION_ID = "DE412310"
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
-# --- Configurazione piogge medie per catchment ---
-PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE811100")
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE811100.csv")
+PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE411220")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE411220.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
-PRECIP_BUFFER_METERS = 100000.0
+PRECIP_BUFFER_METERS = 10000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
@@ -276,6 +272,34 @@ def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
     if not records:
         return
 
+    renderer = None
+    placed_bboxes = []
+    candidate_offsets = [
+        (4, 4),
+        (-4, 4),
+        (4, -4),
+        (-4, -4),
+        (8, 0),
+        (-8, 0),
+        (0, 8),
+        (0, -8),
+        (10, 6),
+        (-10, 6),
+        (10, -6),
+        (-10, -6),
+    ]
+
+    def _create_annotation(lon, lat, text, offset):
+        return ax.annotate(
+            text,
+            (lon, lat),
+            xytext=offset,
+            textcoords="offset points",
+            fontsize=fontsize,
+            color=text_color,
+            bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.7},
+        )
+    
     for rec in records:
         lon = rec.get("lon")
         lat = rec.get("lat")
@@ -283,15 +307,54 @@ def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
         if not label or lon is None or lat is None:
             continue
 
-        ax.annotate(
-            label,
-            (lon, lat),
-            xytext=(4, 4),
-            textcoords="offset points",
-            fontsize=fontsize,
-            color=text_color,
-            bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.7},
-        )
+        if renderer is None:
+            ax.figure.canvas.draw()
+            renderer = ax.figure.canvas.get_renderer()
+
+        text_obj = None
+        bbox = None
+        for offset in candidate_offsets:
+            text_obj = _create_annotation(lon, lat, label, offset)
+            bbox = text_obj.get_window_extent(renderer=renderer).expanded(1.08, 1.1)
+            if any(bbox.overlaps(existing) for existing in placed_bboxes):
+                text_obj.remove()
+                text_obj = None
+                continue
+            placed_bboxes.append(bbox)
+            break
+
+        if text_obj is None:
+            text_obj = _create_annotation(lon, lat, label, candidate_offsets[0])
+            bbox = text_obj.get_window_extent(renderer=renderer).expanded(1.08, 1.1)
+            placed_bboxes.append(bbox)
+
+
+def _filter_stations_in_catchment(records, catch_mask, transform):
+    if not records or catch_mask is None or transform is None:
+        return []
+
+    mask_array = np.asarray(catch_mask)
+    if mask_array.ndim != 2:
+        return []
+
+    height, width = mask_array.shape
+    inside_records = []
+
+    for rec in records:
+        lon = rec.get("lon")
+        lat = rec.get("lat")
+        if lon is None or lat is None:
+            continue
+
+        try:
+            row, col = rowcol(transform, lon, lat)
+        except Exception:
+            continue
+
+        if 0 <= row < height and 0 <= col < width and mask_array[row, col]:
+            inside_records.append(rec)
+
+    return inside_records
 
 with rasterio.open(dem_path) as src:
     dem = src.read(1, out_dtype='float32')
@@ -302,7 +365,7 @@ grid = Grid.from_raster(os.path.join(dem_path), nodata=-9999, data_name="grid da
 dem = grid.read_raster(os.path.join(dem_path), nodata=-9999, data_name="dem")
 
 flooded_dem = grid.fill_depressions(dem)
-inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-11) #eps è importante
+inflated_dem = grid.resolve_flats(flooded_dem, eps=1e-10) #eps è importante
 fdir = grid.flowdir(inflated_dem)
 
 # Calcola l'accumulo di flusso a valle di ogni cella.
@@ -310,7 +373,7 @@ acc = grid.accumulation(fdir)
 
 # Aggancia il punto di chiusura sul pixel con accumulo sufficiente.
 x_snap, y_snap = grid.snap_to_mask(
-    acc > MAIN_SNAP_ACCUMULATION_THRESHOLD, POUR_POINT)
+    acc > SNAP_ACCUMULATION_THRESHOLD, POUR_POINT)
 
 
 # --- Visualizzazione accumulo di flusso e punto di chiusura ---
@@ -333,7 +396,9 @@ plt.tight_layout()
 
 # Delineate the catchment
 catch = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, xytype='coordinate')
-
+stations_in_catchment = _filter_stations_in_catchment(
+    station_metadata, catch, grid.affine
+)
 n_pixels = int(np.count_nonzero(catch))   # equivalente a int(catch.sum())
 print("Pixel nel catchment:", n_pixels)
 main_catchment_area_m2 = n_pixels * PIXEL_AREA_M2
@@ -375,7 +440,8 @@ if (
         zorder=5,
         label='stazioni di misura',
     )
-    _annotate_station_labels(ax, station_metadata)
+    if stations_in_catchment:
+        _annotate_station_labels(ax, stations_in_catchment)
 ax.set_title('DSM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
@@ -442,7 +508,8 @@ if (
         zorder=5,
         label='stazioni di misura',
     )
-    _annotate_station_labels(ax, station_metadata)
+    if stations_in_catchment:
+        _annotate_station_labels(ax, stations_in_catchment)
 ax.set_title('Catchment Outline on DEM', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
@@ -547,7 +614,7 @@ d8_to_offset = {
 
 # Mask dei canali, utile per gli snap e per vincolare la ricerca dei massimi.
 channel_mask = branches_raster.astype(bool)
-snap_mask = channel_mask & (acc_view >= STATION_SNAP_ACCUMULATION_THRESHOLD)
+snap_mask = channel_mask & (acc_view >= SNAP_ACCUMULATION_THRESHOLD)
 # Precalcola gli indici dei pixel che appartengono alla rete (e al bacino, se presente).
 channel_indices = np.argwhere(snap_mask)
 if catch_view is not None and channel_indices.size:
@@ -1194,7 +1261,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE811530"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE411150"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
