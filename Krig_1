@@ -671,7 +671,7 @@ def krige_basin_precipitation_grid(
     variogram_params=VARIOGRAM_PARAMS,
     nlags: int = N_LAGS,
     aggregation_factor: int = 3,
-) -> Tuple[np.ndarray, Affine]:
+) -> Tuple[np.ndarray, Affine, pd.DataFrame]:
     """Esegue il kriging su tutto il bacino (unione dei catchment) per una data."""
 
     target_date = pd.to_datetime(date)
@@ -718,6 +718,14 @@ def krige_basin_precipitation_grid(
     basin_mask = np.logical_or.reduce(catchment_masks)
     if basin_mask is None or not basin_mask.any():
         raise ValueError("Il bacino aggregato non contiene pixel validi.")
+        
+    station_data = meta.loc[common, ["lon", "lat", "x", "y"]].copy()
+    station_data["precipitation"] = ts_wide.loc[target_date].reindex(common).to_numpy()
+
+    station_data["inside_basin"] = [
+        _station_inside_mask((row["x"], row["y"]), agg_transform, basin_mask)
+        for _, row in station_data.iterrows()
+    ]
 
     basin_rows, basin_cols = np.nonzero(basin_mask)
 
@@ -751,7 +759,7 @@ def krige_basin_precipitation_grid(
 
     basin_grid = np.full(basin_mask.shape, np.nan)
     basin_grid[basin_rows, basin_cols] = basin_preds
-    return basin_grid, agg_transform
+    return basin_grid, agg_transform, station_data
 # ==============================
 # Main workflow
 # ==============================
