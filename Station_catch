@@ -311,7 +311,14 @@ def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
         Dimensione del font delle etichette, di default 8.
     """
 
-    if not records:
+    if records is None:
+        return
+
+    if isinstance(records, pd.DataFrame):
+        if records.empty:
+            return
+        records = records.to_dict("records")
+    elif not records:
         return
 
     renderer = None
@@ -1468,9 +1475,15 @@ else:
         plot_dates = list(dict.fromkeys(plot_dates))
 
         for plot_date in plot_dates:
+            plot_date_ts = pd.to_datetime(plot_date, errors="coerce")
+            plot_date_label = (
+                plot_date_ts.strftime("%Y-%m-%d")
+                if not pd.isna(plot_date_ts)
+                else str(plot_date)
+            )
             try:
                 basin_grid, agg_transform, station_plot_data = krige_basin_precipitation_grid(
-                    date=plot_date,
+                    date=plot_date_label,
                     catchment_masks=selected_masks,
                     transform=grid.affine,
                     csv_dir=PRECIP_CSV_DIR,
@@ -1482,7 +1495,11 @@ else:
                     aggregation_factor=AGGREGATION_FACTOR,
                 )
                 plot_precipitation_map(
-                   plot_date, basin_grid, agg_transform, station_plot_data
-               )
+                   plot_date_label, basin_grid, agg_transform, station_plot_data
+                )
             except Exception as exc:
-                print(f"Impossibile generare il plot delle precipitazioni: {exc}")
+                print(
+                    "Impossibile generare il plot delle precipitazioni per "
+                    f"{plot_date_label}: {exc}"
+                )
+                
