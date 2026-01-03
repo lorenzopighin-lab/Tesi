@@ -94,6 +94,7 @@ def add_scale_bar(
     preferred_lengths_meters=None,
     location="lower right",
     color="black",
+    pixel_size_meters: float = PIXEL_SIZE_METERS,
 ):
     """Add a simple scale bar to ``ax`` based on the raster transform."""
     if transform is None:
@@ -104,7 +105,10 @@ def add_scale_bar(
         pixel_width_units = None
     if not pixel_width_units:
         return
-    meters_per_unit = PIXEL_SIZE_METERS / pixel_width_units
+    if not pixel_size_meters or pixel_size_meters <= 0:
+        return
+
+    meters_per_unit = pixel_size_meters / pixel_width_units
     if not np.isfinite(meters_per_unit) or meters_per_unit <= 0:
         return
 
@@ -160,6 +164,8 @@ def plot_precipitation_map(
     grid_data: np.ndarray,
     transform,
     station_data: pd.DataFrame | None = None,
+    *,
+    pixel_size_meters: float = PIXEL_SIZE_METERS,
 ):
     """Crea un plot con i pixel colorati in base alle precipitazioni e le stazioni misurate."""
 
@@ -233,7 +239,7 @@ def plot_precipitation_map(
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_title(f"Precipitazione interpolata {date_text}")
-    add_scale_bar(ax, transform)
+    add_scale_bar(ax, transform, pixel_size_meters=pixel_size_meters)
     cbar = fig.colorbar(img, ax=ax, label="Precipitazione [mm]")
     cbar.ax.tick_params(labelsize=10)
     plt.tight_layout()
@@ -1473,6 +1479,12 @@ else:
                     plot_dates = _build_plot_date_list(date_string=user_plot_date)
 
         plot_dates = list(dict.fromkeys(plot_dates))
+        
+        agg_pixel_size_m = (
+            PIXEL_SIZE_METERS * AGGREGATION_FACTOR
+            if AGGREGATION_FACTOR and AGGREGATION_FACTOR > 1
+            else PIXEL_SIZE_METERS
+        )
 
         for plot_date in plot_dates:
             plot_date_ts = pd.to_datetime(plot_date, errors="coerce")
@@ -1495,7 +1507,11 @@ else:
                     aggregation_factor=AGGREGATION_FACTOR,
                 )
                 plot_precipitation_map(
-                   plot_date_label, basin_grid, agg_transform, station_plot_data
+                   plot_date_label,
+                    basin_grid,
+                    agg_transform,
+                    station_plot_data,
+                    pixel_size_meters=agg_pixel_size_m,
                 )
             except Exception as exc:
                 print(
