@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 
 CSV_DIR  = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\kriging_out")  # ← cambia qui
-CSV_FILE = "ammer_precip.csv"                           # ← o cambia nome
+CSV_FILE = "catchment_precipitation_table_DE811100.csv"                           # ← o cambia nome
 OUTPUT_DIR = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out")
 
 def _safe_mean(values: np.ndarray) -> float:
@@ -87,7 +87,11 @@ def compute_from_csv(csv_path: str) -> pd.DataFrame:
 
     if len(catchment_columns) < 2:
         raise ValueError("The CSV file must contain at least two 'catchment_' columns")
-
+        
+    catchment_data = data[catchment_columns].copy()
+    catchment_data = catchment_data.where(catchment_data > 1, 0)
+    data[catchment_columns] = catchment_data
+    
     results = []
     for col_a, col_b in itertools.combinations(catchment_columns, 2):
         h_1 = data[col_a].to_numpy(dtype=float)
