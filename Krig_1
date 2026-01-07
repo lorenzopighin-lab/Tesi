@@ -480,6 +480,7 @@ def compute_catchment_precipitation_series(
     variogram_params=VARIOGRAM_PARAMS,
     nlags: int = N_LAGS,
     aggregation_factor: int = 3,
+    precipitation_threshold: float = PRECIPITATION_THRESHOLD,
 ) -> pd.DataFrame:
     
     def _normalize_requested_ids(raw_ids: Optional[Sequence[str]]) -> List[str]:
@@ -622,7 +623,13 @@ def compute_catchment_precipitation_series(
                 results[cid].append(np.nan)
                 continue
             values = basin_grid[mask]
-            results[cid].append(float(np.nanmean(values)))
+            mean_precip = float(np.nanmean(values))
+            if np.isnan(mean_precip):
+                results[cid].append(mean_precip)
+                continue
+            if mean_precip < precipitation_threshold:
+                mean_precip = 0.0
+            results[cid].append(mean_precip)
             catchment_durations[cid] += elapsed
 
     df = pd.DataFrame(results, index=date_index)
