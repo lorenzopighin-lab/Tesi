@@ -87,10 +87,6 @@ def compute_from_csv(csv_path: str) -> pd.DataFrame:
 
     if len(catchment_columns) < 2:
         raise ValueError("The CSV file must contain at least two 'catchment_' columns")
-        
-    catchment_data = data[catchment_columns].copy()
-    catchment_data = catchment_data.where(catchment_data > 1, 0)
-    data[catchment_columns] = catchment_data
     
     results = []
     for col_a, col_b in itertools.combinations(catchment_columns, 2):
