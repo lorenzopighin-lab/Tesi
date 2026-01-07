@@ -133,19 +133,31 @@ def _resolve_csv_path(csv_dir: Path, csv_file: str | None = None) -> Path:
         raise FileNotFoundError(f"Nessun CSV trovato in {csv_dir}")
     return candidates[0]
 
-def main() -> None:
-    csv_path = _resolve_csv_path(CSV_DIR, CSV_FILE)  # usa cartella + nome (o il più recente)
-    print(f"Uso CSV: {csv_path}")
-    results = compute_from_csv(str(csv_path))        # compute_from_csv accetta una stringa/percorso
+def run_model(csv_path: str | Path | None = None) -> Path | None:
+    if csv_path is None:
+        resolved_csv = _resolve_csv_path(CSV_DIR, CSV_FILE)  # usa cartella + nome (o il più recente)
+    else:
+        resolved_csv = Path(csv_path)
+        if not resolved_csv.exists():
+            raise FileNotFoundError(f"Non trovo il file: {resolved_csv}")
+
+    print(f"Uso CSV: {resolved_csv}")
+    results = compute_from_csv(str(resolved_csv))        # compute_from_csv accetta una stringa/percorso
     if results.empty:
         print("No catchment combinations found.")
-    else:
-        print(results.to_string(index=False))
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = OUTPUT_DIR / f"model_output_{timestamp}.csv"
-        results.to_csv(output_file, index=False)
-        print(f"Tabella salvata in: {output_file}")
+    return None
+
+    print(results.to_string(index=False))
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = OUTPUT_DIR / f"model_output_{timestamp}.csv"
+    results.to_csv(output_file, index=False)
+    print(f"Tabella salvata in: {output_file}")
+    return output_file
+
+
+def main() -> None:
+    run_model()
 
 
 if __name__ == "__main__":
