@@ -65,6 +65,7 @@ PRECIP_BUFFER_METERS = 10000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
+PRECIPITATION_THRESHOLD = 0.0  # valori medi inferiori alla soglia vengono impostati a zero
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
 # --- Opzioni Kriging ---
@@ -1440,6 +1441,7 @@ else:
                 min_stations=PRECIP_MIN_STATIONS,
                 max_stations=PRECIP_MAX_STATIONS,
                 aggregation_factor=AGGREGATION_FACTOR,
+                precipitation_threshold=PRECIPITATION_THRESHOLD,
             )
             if not precip_table.empty:
                 precip_table.to_csv(CATCHMENT_SERIES_OUTPUT, index=False)
