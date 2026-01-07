@@ -23,6 +23,8 @@ from Krig_1 import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
+from Model_1 import run_model
+
 
 
 # --- Configurazione generale ---
@@ -65,7 +67,7 @@ PRECIP_BUFFER_METERS = 10000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
-PRECIPITATION_THRESHOLD = 0.0  # valori medi inferiori alla soglia vengono impostati a zero
+PRECIPITATION_THRESHOLD = 2.0  # valori medi inferiori alla soglia vengono impostati a zero
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 
 # --- Opzioni Kriging ---
@@ -1449,6 +1451,10 @@ else:
                     "Tabella precipitazioni media catchment salvata in "
                     f"{CATCHMENT_SERIES_OUTPUT.resolve()}"
                 )
+                try:
+                    run_model(CATCHMENT_SERIES_OUTPUT)
+                except Exception as exc:
+                    print(f"Errore durante l'esecuzione del Model: {exc}")
             else:
                 print(
                     "Nessuna serie di precipitazione calcolata: verificare dati di input o catchments."
