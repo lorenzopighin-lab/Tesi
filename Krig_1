@@ -6,10 +6,12 @@ Prerequisiti:
 - pykrige, numpy, pandas, rasterio, pyproj, tqdm (opzionale)
 
 Struttura attesa dati:
-1) Cartella con 28 file CSV, uno per stazione, con colonne almeno: ["date", "precipitation_mean"].
-   - La colonna "date" deve essere interpretabile da pandas.to_datetime.
-   - Il nome file (senza estensione) viene usato come station_id (adatta se necessario).
-2) File CSV metadati stazioni con colonne: [station_id, lon, lat] (EPSG:4326).
+11) Cartella con un file per stazione (formato .txt) contenente le precipitazioni.
+   - Il nome file (es. "15.txt") corrisponde all'ID della stazione.
+   - Separatore di colonna: punto e virgola (;)
+   - Colonne attese: "MESS_DATUM" (formato data YYYYMMDD) e "RS" (precipitazione).
+2) File CSV metadati stazioni con colonne: [ID, Lon, Lat] (EPSG:4326).
+   - In alternativa sono accettate le intestazioni [station_id, lon, lat].
 3) Un DTM/DSM/DEM GeoTIFF (30 m) che definisce estensione, risoluzione e CRS della griglia output.
 
 Output:
@@ -44,8 +46,8 @@ except Exception:  # tqdm è opzionale
 # ==============================
 # Configurazione (MODIFICA QUI)
 # ==============================
-CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DEA12030")              # cartella con i 28 csv
-STATION_META = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord.csv")    # station_id,lon,lat (EPSG:4326)
+CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE911970")              # cartella con i file .txt delle precipitazioni
+STATION_META = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE911970.csv")    # CSV con ID/Lon/Lat (EPSG:4326)
 DTM_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif")              # raster di riferimento (griglia/CRS)
 OUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out")
 OUT_PREFIX = "precip_"                         # prefisso file di output
@@ -75,10 +77,28 @@ PRECIPITATION_THRESHOLD = 0.0
 
 def read_station_metadata(meta_path: Path) -> pd.DataFrame:
     df = pd.read_csv(meta_path)
-    required = {"station_id", "lon", "lat"}
-    if not required.issubset(df.columns):
-        raise ValueError(f"Il file metadata deve contenere colonne {required}. Trovate: {set(df.columns)}")
-    return df
+    df.columns = [str(col).strip() for col in df.columns]
+    columns_lower = {col.lower(): col for col in df.columns}
+    if {"station_id", "lon", "lat"}.issubset(columns_lower):
+        rename_map = {
+            columns_lower["station_id"]: "station_id",
+            columns_lower["lon"]: "lon",
+            columns_lower["lat"]: "lat",
+        }
+    elif {"id", "lon", "lat"}.issubset(columns_lower):
+        rename_map = {
+            columns_lower["id"]: "station_id",
+            columns_lower["lon"]: "lon",
+            columns_lower["lat"]: "lat",
+        }
+    else:
+        raise ValueError(
+            "Il file metadata deve contenere colonne [ID, Lon, Lat] "
+            "oppure [station_id, lon, lat]. "
+            f"Trovate: {set(df.columns)}"
+        )
+    df = df.rename(columns=rename_map)
+    return df[["station_id", "lon", "lat"]]
 
 def _parse_date_column(date_series: pd.Series) -> pd.Series:
     """Converte una colonna data gestendo formati giorno/mese e avvisa se ci sono valori ignorati."""
@@ -102,22 +122,71 @@ def _parse_date_column(date_series: pd.Series) -> pd.Series:
 
     return parsed
 
+def _prepare_station_timeseries(
+    df: pd.DataFrame,
+    station_id: str,
+    *,
+    date_col: str,
+    precip_col: str,
+    date_format: str | None = None,
+) -> pd.DataFrame:
+    if date_format:
+        parsed = pd.to_datetime(df[date_col].astype(str), format=date_format, errors="coerce")
+        parsed = parsed.dt.tz_localize(None)
+    else:
+        parsed = _parse_date_column(df[date_col])
+    df = df.assign(date=parsed)
+    df = df.dropna(subset=["date"])
+    if df.empty:
+        raise ValueError(
+            f"'{station_id}' non contiene date interpretabili. Verifica il formato."
+        )
+    precip = pd.to_numeric(df[precip_col], errors="coerce")
+    out = pd.DataFrame(
+        {
+            "date": df["date"],
+            "precipitation_mean": precip,
+            "station_id": station_id,
+        }
+    )
+    return out.dropna(subset=["precipitation_mean"])
+
+
+
 def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
-    """Legge tutti i CSV in cartella e ritorna un DataFrame long: [date, station_id, precipitation_mean]."""
+    """Legge i file di precipitazione in cartella e ritorna un DataFrame long."""
     rows = []
-    for fp in sorted(glob.glob(str(csv_dir / "*.csv"))):
-        station_id = Path(fp).stem  # adatta qui se il mapping station_id <- file differisce
-        df = pd.read_csv(fp)
-        if "date" not in df.columns or "precipitation_mean" not in df.columns:
-            raise ValueError(f"'{fp}' deve contenere colonne 'date' e 'precipitation_mean'.")
-        df["date"] = _parse_date_column(df["date"])
-        df = df.dropna(subset=["date"])  # rimuove eventuali righe con date non interpretabili
-        if df.empty:
-            raise ValueError(
-                f"'{fp}' non contiene date interpretabili. Verifica il formato (es. YYYY-MM-DD o DD/MM/YYYY)."
+    files = sorted(glob.glob(str(csv_dir / "*.txt"))) + sorted(glob.glob(str(csv_dir / "*.csv")))
+    if not files:
+        raise ValueError(f"Nessun file .txt o .csv trovato in {csv_dir}")
+    for fp in files:
+        station_id = Path(fp).stem  # il nome file coincide con l'ID della stazione
+        if fp.lower().endswith(".txt"):
+            df = pd.read_csv(fp, sep=";", dtype=str)
+        else:
+            df = pd.read_csv(fp)
+        df.columns = [str(col).strip() for col in df.columns]
+        columns_lower = {col.lower(): col for col in df.columns}
+        if {"mess_datum", "rs"}.issubset(columns_lower):
+            df = _prepare_station_timeseries(
+                df,
+                station_id,
+                date_col=columns_lower["mess_datum"],
+                precip_col=columns_lower["rs"],
+                date_format="%Y%m%d",
             )
-        df = df[["date", "precipitation_mean"]].copy()
-        df["station_id"] = station_id
+        elif {"date", "precipitation_mean"}.issubset(columns_lower):
+            df = _prepare_station_timeseries(
+                df,
+                station_id,
+                date_col=columns_lower["date"],
+                precip_col=columns_lower["precipitation_mean"],
+            )
+        else:
+            raise ValueError(
+                f"'{fp}' deve contenere colonne 'MESS_DATUM'/'RS' "
+                "o 'date'/'precipitation_mean'."
+            )
         rows.append(df)
     all_df = pd.concat(rows, ignore_index=True)
     return all_df
