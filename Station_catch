@@ -67,7 +67,8 @@ PRECIP_BUFFER_METERS = 10000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
-PRECIPITATION_THRESHOLD = 3.0  # valori medi inferiori alla soglia vengono impostati a zero
+KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
+MODEL_PRECIPITATION_THRESHOLDS = [1.0, 3.0]  # soglie da applicare quando si lancia Model_1
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 MODEL_OUTPUT_DIR = Path("model_out")
 
@@ -1444,7 +1445,7 @@ else:
                 min_stations=PRECIP_MIN_STATIONS,
                 max_stations=PRECIP_MAX_STATIONS,
                 aggregation_factor=AGGREGATION_FACTOR,
-                precipitation_threshold=PRECIPITATION_THRESHOLD,
+                precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
             )
             if not precip_table.empty:
                 precip_table.to_csv(CATCHMENT_SERIES_OUTPUT, index=False)
@@ -1456,12 +1457,20 @@ else:
                     output_file = run_model(
                         CATCHMENT_SERIES_OUTPUT,
                         output_dir=MODEL_OUTPUT_DIR,
+                        precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
                     )
                     if output_file:
-                        print(
-                            "Output Model salvato in "
-                            f"{output_file.resolve()}"
-                        )
+                        if isinstance(output_file, list):
+                            for model_output in output_file:
+                                print(
+                                    "Output Model salvato in "
+                                    f"{model_output.resolve()}"
+                                )
+                        else:
+                            print(
+                                "Output Model salvato in "
+                                f"{output_file.resolve()}"
+                            )
                 except Exception as exc:
                     print(f"Errore durante l'esecuzione del Model: {exc}")
             else:
