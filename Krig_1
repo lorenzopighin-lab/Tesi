@@ -130,18 +130,25 @@ def _prepare_station_timeseries(
     precip_col: str,
     date_format: str | None = None,
 ) -> pd.DataFrame:
+    date_series = df[date_col].astype(str).str.strip()
     if date_format:
-        parsed = pd.to_datetime(df[date_col].astype(str), format=date_format, errors="coerce")
+        cleaned_dates = date_series.str.extract(r"(\d{8})", expand=False)
+        parsed = pd.to_datetime(cleaned_dates, format=date_format, errors="coerce")
         parsed = parsed.dt.tz_localize(None)
+        if parsed.isna().all():
+            parsed = _parse_date_column(date_series)
     else:
-        parsed = _parse_date_column(df[date_col])
+        parsed = _parse_date_column(date_series)
     df = df.assign(date=parsed)
     df = df.dropna(subset=["date"])
     if df.empty:
         raise ValueError(
             f"'{station_id}' non contiene date interpretabili. Verifica il formato."
         )
-    precip = pd.to_numeric(df[precip_col], errors="coerce")
+    precip = pd.to_numeric(
+        df[precip_col].astype(str).str.strip().str.replace(",", ".", regex=False),
+        errors="coerce",
+    )
     out = pd.DataFrame(
         {
             "date": df["date"],
@@ -162,17 +169,22 @@ def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
     for fp in files:
         station_id = Path(fp).stem  # il nome file coincide con l'ID della stazione
         if fp.lower().endswith(".txt"):
-            df = pd.read_csv(fp, sep=";", dtype=str)
+            df = pd.read_csv(
+                fp,
+                sep=";",
+                dtype=str,
+                usecols=lambda col: col.strip().upper() in {"MESS_DATUM", "RS"},
+            )
         else:
             df = pd.read_csv(fp)
         df.columns = [str(col).strip() for col in df.columns]
         columns_lower = {col.lower(): col for col in df.columns}
-        if {"mess_datum", "rs"}.issubset(columns_lower):
+        if {"MESS_DATUM", "RS"}.issubset(columns_lower):
             df = _prepare_station_timeseries(
                 df,
                 station_id,
-                date_col=columns_lower["mess_datum"],
-                precip_col=columns_lower["rs"],
+                date_col=columns_lower["MESS_DATUM"],
+                precip_col=columns_lower["RS"],
                 date_format="%Y%m%d",
             )
         elif {"date", "precipitation_mean"}.issubset(columns_lower):
