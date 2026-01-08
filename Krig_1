@@ -169,22 +169,33 @@ def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
     for fp in files:
         station_id = Path(fp).stem  # il nome file coincide con l'ID della stazione
         if fp.lower().endswith(".txt"):
-            df = pd.read_csv(
-                fp,
-                sep=";",
-                dtype=str,
-                usecols=lambda col: col.strip().upper() in {"MESS_DATUM", "RS"},
-            )
+            try:
+                df = pd.read_csv(
+                    fp,
+                    sep=None,
+                    engine="python",
+                    dtype=str,
+                    skipinitialspace=True,
+                )
+            except pd.errors.ParserError:
+                df = pd.read_csv(
+                    fp,
+                    sep=";",
+                    dtype=str,
+                    skipinitialspace=True,
+                )
         else:
             df = pd.read_csv(fp)
         df.columns = [str(col).strip() for col in df.columns]
+        df = df.loc[:, ~df.columns.str.match(r"^Unnamed")]
+        df = df.loc[:, df.columns != ""]
         columns_lower = {col.lower(): col for col in df.columns}
-        if {"MESS_DATUM", "RS"}.issubset(columns_lower):
+        if {"mess_datum", "rs"}.issubset(columns_lower):
             df = _prepare_station_timeseries(
                 df,
                 station_id,
-                date_col=columns_lower["MESS_DATUM"],
-                precip_col=columns_lower["RS"],
+                date_col=columns_lower["mess_datum"],
+                precip_col=columns_lower["rs"],
                 date_format="%Y%m%d",
             )
         elif {"date", "precipitation_mean"}.issubset(columns_lower):
