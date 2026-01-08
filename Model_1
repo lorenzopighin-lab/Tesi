@@ -81,9 +81,10 @@ def _compute_parameters(h_1: np.ndarray, h_2: np.ndarray) -> dict:
     }
 
 
-def compute_from_csv(csv_path: str) -> pd.DataFrame:
-    data = pd.read_csv(csv_path)
-    catchment_columns: List[str] = [col for col in data.columns if col.lower().startswith("catchment_")]
+def compute_from_dataframe(data: pd.DataFrame) -> pd.DataFrame:
+    catchment_columns: List[str] = [
+        col for col in data.columns if col.lower().startswith("catchment_")
+    ]
 
     if len(catchment_columns) < 2:
         raise ValueError("The CSV file must contain at least two 'catchment_' columns")
@@ -120,6 +121,33 @@ def compute_from_csv(csv_path: str) -> pd.DataFrame:
 
     return pd.DataFrame(results, columns=columns_order)
 
+def compute_from_csv(csv_path: str) -> pd.DataFrame:
+    data = pd.read_csv(csv_path)
+    return compute_from_dataframe(data)
+
+
+def _apply_precipitation_threshold(
+    data: pd.DataFrame,
+    threshold: float | None,
+) -> pd.DataFrame:
+    if threshold is None:
+        return data
+    catchment_columns: List[str] = [
+        col for col in data.columns if col.lower().startswith("catchment_")
+    ]
+    if not catchment_columns:
+        return data
+    thresholded = data.copy()
+    thresholded[catchment_columns] = thresholded[catchment_columns].mask(
+        thresholded[catchment_columns] < threshold,
+        0.0,
+    )
+    return thresholded
+
+
+def _format_threshold_label(threshold: float) -> str:
+    return str(threshold).replace(".", "p")
+
 def _resolve_csv_path(csv_dir: Path, csv_file: str | None = None) -> Path:
     """Restituisce il Path del CSV; se csv_file è None sceglie il .csv più recente nella cartella."""
     if csv_file:
@@ -139,7 +167,8 @@ def run_model(
     csv_dir: Path | None = None,
     csv_file: str | None = None,
     output_dir: Path | None = None,
-) -> Path | None:
+precipitation_thresholds: List[float] | None = None,
+) -> Path | List[Path] | None:
     if csv_path is None:
         resolved_csv = _resolve_csv_path(
             csv_dir or CSV_DIR,
@@ -151,19 +180,42 @@ def run_model(
             raise FileNotFoundError(f"Non trovo il file: {resolved_csv}")
 
     print(f"Uso CSV: {resolved_csv}")
-    results = compute_from_csv(str(resolved_csv))
-    if results.empty:
-        print("No catchment combinations found.")
-        return None
+    data = pd.read_csv(resolved_csv)
+    thresholds = precipitation_thresholds or [None]
+    output_files: List[Path] = []
+    multiple_thresholds = len(thresholds) > 1
 
-    print(results.to_string(index=False))
+    
     target_output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
     target_output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = target_output_dir / f"model_output_{timestamp}.csv"
-    results.to_csv(output_file, index=False)
-    print(f"Tabella salvata in: {output_file}")
-    return output_file
+    
+    for threshold in thresholds:
+        thresholded_data = _apply_precipitation_threshold(data, threshold)
+        results = compute_from_dataframe(thresholded_data)
+        if results.empty:
+            print("No catchment combinations found.")
+            continue
+        results.insert(
+            0,
+            "precipitation_threshold",
+            float("nan") if threshold is None else threshold,
+        )
+        if threshold is None and not multiple_thresholds:
+            output_file = target_output_dir / f"model_output_{timestamp}.csv"
+        else:
+            label = "none" if threshold is None else _format_threshold_label(threshold)
+            output_file = target_output_dir / f"model_output_threshold_{label}_{timestamp}.csv"
+        print(results.to_string(index=False))
+        results.to_csv(output_file, index=False)
+        print(f"Tabella salvata in: {output_file}")
+        output_files.append(output_file)
+
+    if not output_files:
+        return None
+    if len(output_files) == 1:
+        return output_files[0]
+    return output_files
 
 
 def main() -> None:
