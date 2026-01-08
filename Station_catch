@@ -19,7 +19,7 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from Krig_1 import (
+from Krig_2 import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
@@ -62,8 +62,12 @@ TARGET_STATION_ID = ""
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
-PRECIP_CSV_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/DE911970")
+# Stazioni attuali usate come sezioni di chiusura.
 STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE911970.csv")
+# Inserire qui il path alla cartella con i file .txt delle precipitazioni (uno per stazione).
+PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE911970")
+# Inserire qui il path al CSV con le colonne ID, Lon, Lat delle stazioni di precipitazione.
+PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE911970.csv")
 PRECIP_DATE_START = "2010-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 10000.0
@@ -71,7 +75,7 @@ PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
-MODEL_PRECIPITATION_THRESHOLDS = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]  # soglie da applicare quando si lancia Model_1
+MODEL_PRECIPITATION_THRESHOLDS = [1.0]  # soglie da applicare quando si lancia Model_1
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
 MODEL_OUTPUT_DIR = Path("model_out")
 
@@ -82,7 +86,7 @@ PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da inte
 KRIGING_CATCHMENT_IDS = None
 PROMPT_PLOT_PRECIPITATION = True
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
-PLOT_PRECIPITATION_RANGE = None  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
+PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-05")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -1438,8 +1442,8 @@ else:
                 catchment_masks=selected_masks,
                 transform=grid.affine,
                 catchment_ids=selected_ids,
-                csv_dir=PRECIP_CSV_DIR,
-                station_meta=STATION_META_PATH,
+                csv_dir=PRECIP_DATA_DIR,
+                station_meta=PRECIP_STATION_META_PATH,
                 dtm_path=Path(dem_path),
                 dtm_crs=dtm_crs,
                 start_date=PRECIP_DATE_START,
@@ -1527,8 +1531,8 @@ else:
                     date=plot_date_label,
                     catchment_masks=selected_masks,
                     transform=grid.affine,
-                    csv_dir=PRECIP_CSV_DIR,
-                    station_meta=STATION_META_PATH,
+                    csv_dir=PRECIP_DATA_DIR,
+                    station_meta=PRECIP_STATION_META_PATH,
                     dtm_path=Path(dem_path),
                     dtm_crs=dtm_crs,
                     buffer_distance=PRECIP_BUFFER_METERS,
