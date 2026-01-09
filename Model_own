@@ -1,0 +1,272 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Nov  6 16:56:08 2025
+
+@author: loren
+"""
+
+import numpy as np
+import itertools
+from typing import List
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
+
+CSV_DIR  = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\kriging_out")  # ← cambia qui
+CSV_FILE = "catchment_precipitation_table.csv"                           # ← o cambia nome
+OUTPUT_DIR = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out")
+threshod = 2.0
+def _safe_mean(values: np.ndarray) -> float:
+    if values.size == 0:
+        return float("nan")
+    return float(np.mean(values))
+
+
+def _compute_parameters(h_1: np.ndarray, h_2: np.ndarray) -> dict:
+    if h_1.shape != h_2.shape:
+        raise ValueError("Rainfall series must have the same length")
+
+    valid_mask = (~np.isnan(h_1)) & (~np.isnan(h_2))
+    h_1 = h_1[valid_mask]
+    h_2 = h_2[valid_mask]
+
+    if h_1.size == 0:
+        raise ValueError("No overlapping data between the two rainfall series")
+
+    length_series = h_1.size
+
+    lambda_1t = np.sum(h_1 > 0) / length_series
+    lambda_2t = np.sum(h_2 > 0) / length_series
+
+    lambda_1 = np.sum((h_1 > 0) & (h_2 == 0)) / length_series
+    lambda_2 = np.sum((h_2 > 0) & (h_1 == 0)) / length_series
+    lambda_12 = np.sum((h_1 > 0) & (h_2 > 0)) / length_series
+
+    alpha_1t = _safe_mean(h_1[h_1 > 0])
+    alpha_2t = _safe_mean(h_2[h_2 > 0])
+
+    alpha_1 = _safe_mean(h_1[(h_1 > 0) & (h_2 == 0)])
+    alpha_2 = _safe_mean(h_2[(h_2 > 0) & (h_1 == 0)])
+
+    alpha_1_12 = _safe_mean(h_1[(h_1 > 0) & (h_2 > 0)])
+    alpha_2_12 = _safe_mean(h_2[(h_1 > 0) & (h_2 > 0)])
+
+    synchronous_h_1 = h_1[(h_1 > 0) & (h_2 > 0)]
+    synchronous_h_2 = h_2[(h_1 > 0) & (h_2 > 0)]
+
+    if synchronous_h_1.size > 1:
+        r_alpha_12 = float(np.corrcoef(synchronous_h_1, synchronous_h_2)[0, 1])
+    else:
+        r_alpha_12 = float("nan")
+
+    if lambda_1t > 0 and lambda_2t > 0 and not np.isnan(r_alpha_12):
+        rho = lambda_12 / np.sqrt(lambda_1t * lambda_2t) * 0.5 * (1 + r_alpha_12)
+    else:
+        rho = float("nan")
+
+    return {
+        "lambda_1t": lambda_1t,
+        "lambda_2t": lambda_2t,
+        "lambda_1": lambda_1,
+        "lambda_2": lambda_2,
+        "lambda_12": lambda_12,
+        "alpha_1t": alpha_1t,
+        "alpha_2t": alpha_2t,
+        "alpha_1": alpha_1,
+        "alpha_2": alpha_2,
+        "alpha_1_12": alpha_1_12,
+        "alpha_2_12": alpha_2_12,
+        "r_alpha_12": r_alpha_12,
+        "rho": rho,
+    }
+
+
+def compute_from_dataframe(data: pd.DataFrame) -> pd.DataFrame:
+    catchment_columns: List[str] = [
+        col for col in data.columns if col.lower().startswith("catchment_")
+    ]
+
+    if len(catchment_columns) < 2:
+        raise ValueError("The CSV file must contain at least two 'catchment_' columns")
+    
+    results = []
+    for col_a, col_b in itertools.combinations(catchment_columns, 2):
+        h_1 = data[col_a].to_numpy(dtype=float)
+        h_2 = data[col_b].to_numpy(dtype=float)
+
+        params = _compute_parameters(h_1, h_2)
+        params.update({
+            "catchment_a": col_a,
+            "catchment_b": col_b,
+        })
+        results.append(params)
+
+    columns_order = [
+        "catchment_a",
+        "catchment_b",
+        "lambda_1t",
+        "lambda_2t",
+        "lambda_1",
+        "lambda_2",
+        "lambda_12",
+        "alpha_1t",
+        "alpha_2t",
+        "alpha_1",
+        "alpha_2",
+        "alpha_1_12",
+        "alpha_2_12",
+        "r_alpha_12",
+        "rho",
+    ]
+
+    return pd.DataFrame(results, columns=columns_order)
+
+def compute_from_csv(csv_path: str) -> pd.DataFrame:
+    data = pd.read_csv(csv_path)
+    return compute_from_dataframe(data)
+
+
+def _apply_precipitation_threshold(
+    data: pd.DataFrame,
+    threshold: float | None,
+) -> pd.DataFrame:
+    if threshold is None:
+        return data
+    catchment_columns: List[str] = [
+        col for col in data.columns if col.lower().startswith("catchment_")
+    ]
+    if not catchment_columns:
+        return data
+    thresholded = data.copy()
+    thresholded[catchment_columns] = thresholded[catchment_columns].mask(
+        thresholded[catchment_columns] < threshold,
+        0.0,
+    )
+    return thresholded
+
+
+def _format_threshold_label(threshold: float) -> str:
+    return str(threshold).replace(".", "p")
+
+def _resolve_csv_path(csv_dir: Path, csv_file: str | None = None) -> Path:
+    """Restituisce il Path del CSV; se csv_file è None sceglie il .csv più recente nella cartella."""
+    if csv_file:
+        p = csv_dir / csv_file
+        if not p.exists():
+            raise FileNotFoundError(f"Non trovo il file: {p}")
+        return p
+    # Altrimenti cerca il più recente
+    candidates = sorted(csv_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise FileNotFoundError(f"Nessun CSV trovato in {csv_dir}")
+    return candidates[0]
+
+def run_model(
+    csv_path: str | Path | None = None,
+    *,
+    csv_dir: Path | None = None,
+    csv_file: str | None = None,
+    output_dir: Path | None = None,
+    precipitation_thresholds: List[float] | None = None,
+) -> Path | List[Path] | None:
+    if csv_path is None:
+        resolved_csv = _resolve_csv_path(
+            csv_dir or CSV_DIR,
+            csv_file or CSV_FILE,
+        )
+    else:
+        resolved_csv = Path(csv_path)
+        if not resolved_csv.exists():
+            raise FileNotFoundError(f"Non trovo il file: {resolved_csv}")
+
+    print(f"Uso CSV: {resolved_csv}")
+    data = pd.read_csv(resolved_csv)
+    thresholds = precipitation_thresholds or [None]
+    output_files: List[Path] = []
+    multiple_thresholds = len(thresholds) > 1
+
+    
+    target_output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
+    target_output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    for threshold in thresholds:
+        thresholded_data = _apply_precipitation_threshold(data, threshold)
+        results = compute_from_dataframe(thresholded_data)
+        if results.empty:
+            print("No catchment combinations found.")
+            continue
+        results.insert(
+            0,
+            "precipitation_threshold",
+            float("nan") if threshold is None else threshold,
+        )
+        if threshold is None and not multiple_thresholds:
+            output_file = target_output_dir / f"model_output_{timestamp}.csv"
+        else:
+            label = "none" if threshold is None else _format_threshold_label(threshold)
+            output_file = target_output_dir / f"model_output_threshold_{label}_{timestamp}.csv"
+        print(results.to_string(index=False))
+        results.to_csv(output_file, index=False)
+        print(f"Tabella salvata in: {output_file}")
+        output_files.append(output_file)
+
+    if not output_files:
+        return None
+    if len(output_files) == 1:
+        return output_files[0]
+    return output_files
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Esegue model_1 usando una tabella di precipitazione "
+            "e applica una o più soglie."
+        )
+    )
+    parser.add_argument(
+        "--csv-path",
+        type=str,
+        help="Percorso completo al CSV con colonne catchment_.",
+    )
+    parser.add_argument(
+        "--csv-dir",
+        type=str,
+        help="Cartella con il CSV. Usata se --csv-path non è fornito.",
+    )
+    parser.add_argument(
+        "--csv-file",
+        type=str,
+        help="Nome del CSV nella cartella --csv-dir.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        help="Cartella di output per le tabelle di risultato.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        action="append",
+        dest="thresholds",
+        help=(
+            "Soglia di precipitazione (può essere ripetuto). "
+            "Valori inferiori vengono posti a 0."
+        ),
+    )
+    args = parser.parse_args()
+
+    run_model(
+        csv_path=args.csv_path,
+        csv_dir=Path(args.csv_dir) if args.csv_dir else None,
+        csv_file=args.csv_file,
+        output_dir=Path(args.output_dir) if args.output_dir else None,
+        precipitation_thresholds=args.thresholds,
+    )
+
+
+if __name__ == "__main__":
+    main()
