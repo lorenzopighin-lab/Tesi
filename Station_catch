@@ -313,6 +313,71 @@ def _load_station_points(meta_path: Path):
 
 station_metadata, station_lons, station_lats = _load_station_points(STATION_META_PATH)
 
+def _load_precip_station_points(meta_path: Path):
+    if not meta_path:
+        return [], None, None
+    try:
+        with meta_path.open(newline="", encoding="utf-8") as fp:
+            reader = csv.DictReader(fp)
+            if not reader.fieldnames:
+                print("Impossibile tracciare le stazioni: file metadata vuoto.")
+                return [], None, None
+            field_map = {name.lower(): name for name in reader.fieldnames}
+            required_fields = {"id", "lon", "lat"}
+            if required_fields - set(field_map):
+                missing = ", ".join(sorted(required_fields - set(field_map)))
+                print(
+                    "Impossibile tracciare le stazioni di precipitazione: "
+                    f"mancano le colonne richieste ({missing})."
+                )
+                return [], None, None
+            records = []
+            lons = []
+            lats = []
+            for row in reader:
+                try:
+                    lon = float(row[field_map["lon"]])
+                    lat = float(row[field_map["lat"]])
+                except (TypeError, ValueError):
+                    continue
+                if not (math.isfinite(lon) and math.isfinite(lat)):
+                    continue
+                station_id = (row.get(field_map["id"]) or "").strip()
+                if not station_id:
+                    continue
+                record = {
+                    "station_id": station_id,
+                    "lon": float(lon),
+                    "lat": float(lat),
+                    "raw": row,
+                }
+                records.append(record)
+                lons.append(lon)
+                lats.append(lat)
+    except FileNotFoundError:
+        print(f"File metadata stazioni di precipitazione non trovato: {meta_path}")
+        return [], None, None
+    except OSError as exc:
+        print(
+            "Impossibile leggere il file metadata delle stazioni di precipitazione "
+            f"'{meta_path}': {exc}"
+        )
+        return [], None, None
+
+    if not records:
+        print("Nessuna stazione di precipitazione valida trovata nel file metadata.")
+        return [], None, None
+    return (
+        records,
+        np.asarray(lons, dtype="float32"),
+        np.asarray(lats, dtype="float32"),
+    )
+
+
+precip_station_metadata, precip_station_lons, precip_station_lats = (
+    _load_precip_station_points(PRECIP_STATION_META_PATH)
+)
+
 def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
     """Annota i nomi delle stazioni su un asse Matplotlib.
 
@@ -485,6 +550,9 @@ catch = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, xytype='coordinate')
 stations_in_catchment = _filter_stations_in_catchment(
     station_metadata, catch, grid.affine
 )
+precip_stations_in_catchment = _filter_stations_in_catchment(
+    precip_station_metadata, catch, grid.affine
+)
 n_pixels = int(np.count_nonzero(catch))   # equivalente a int(catch.sum())
 print("Pixel nel catchment:", n_pixels)
 main_catchment_area_m2 = n_pixels * PIXEL_AREA_M2
@@ -603,6 +671,57 @@ add_scale_bar(ax, grid.affine, location='lower right')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 plt.show()
+
+# Catchment trasparente con stazioni di precipitazione
+fig, ax = plt.subplots(figsize=(8, 6))
+dem_im = ax.imshow(
+    inflated_dem_masked,
+    extent=grid.extent,
+    cmap='terrain',
+    origin='upper',
+)
+ax.contour(
+    x_coords,
+    y_coords,
+    catch_bool,
+    levels=[0.5],
+    colors='dodgerblue',
+    linewidths=1.8,
+)
+ax.imshow(
+    catch_overlay,
+    extent=grid.extent,
+    origin='upper',
+    cmap=colors.ListedColormap([(1.0, 0.0, 0.0, 0.35)]),
+    zorder=4,
+)
+if (
+    precip_station_lons is not None
+    and precip_station_lats is not None
+    and getattr(precip_station_lons, "size", 0)
+    and getattr(precip_station_lats, "size", 0)
+):
+    ax.scatter(
+        precip_station_lons,
+        precip_station_lats,
+        s=50,
+        marker='o',
+        facecolors='#90caf9',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=6,
+        label='stazioni precipitazione',
+    )
+    if precip_station_metadata:
+        label_records = precip_stations_in_catchment or precip_station_metadata
+        _annotate_station_labels(ax, label_records)
+ax.set_title('Catchment con stazioni di precipitazione', size=14)
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+add_scale_bar(ax, grid.affine, location='lower right')
+plt.colorbar(dem_im, ax=ax, label='Elevation')
+ax.legend(loc='upper right')
+plt.tight_layout()
 #%%branches
 # Limita la griglia al bacino e ricava la rete drenante principale.
 grid.clip_to(catch)
