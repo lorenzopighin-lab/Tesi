@@ -550,9 +550,6 @@ catch = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, xytype='coordinate')
 stations_in_catchment = _filter_stations_in_catchment(
     station_metadata, catch, grid.affine
 )
-precip_stations_in_catchment = _filter_stations_in_catchment(
-    precip_station_metadata, catch, grid.affine
-)
 n_pixels = int(np.count_nonzero(catch))   # equivalente a int(catch.sum())
 print("Pixel nel catchment:", n_pixels)
 main_catchment_area_m2 = n_pixels * PIXEL_AREA_M2
@@ -713,8 +710,7 @@ if (
         label='stazioni precipitazione',
     )
     if precip_station_metadata:
-        label_records = precip_stations_in_catchment or precip_station_metadata
-        _annotate_station_labels(ax, label_records)
+        _annotate_station_labels(ax, precip_station_metadata)
 ax.set_title('Catchment con stazioni di precipitazione', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
