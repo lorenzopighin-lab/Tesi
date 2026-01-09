@@ -25,6 +25,7 @@ Note importanti:
 from __future__ import annotations
 
 import glob
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,8 +76,16 @@ PRECIPITATION_THRESHOLD = 0.0
 # Utility
 # ==============================
 
+def _normalize_station_id(value: object) -> str:
+    text = str(value).strip()
+    if not text:
+        return ""
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".", 1)[0]
+    return text
+
 def read_station_metadata(meta_path: Path) -> pd.DataFrame:
-    df = pd.read_csv(meta_path)
+    df = pd.read_csv(meta_path, dtype=str)
     df.columns = [str(col).strip() for col in df.columns]
     columns_lower = {col.lower(): col for col in df.columns}
     if {"station_id", "lon", "lat"}.issubset(columns_lower):
@@ -98,6 +107,10 @@ def read_station_metadata(meta_path: Path) -> pd.DataFrame:
             f"Trovate: {set(df.columns)}"
         )
     df = df.rename(columns=rename_map)
+    df["station_id"] = df["station_id"].apply(_normalize_station_id)
+    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
+    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
+    df = df.dropna(subset=["station_id", "lon", "lat"])
     return df[["station_id", "lon", "lat"]]
 
 def _parse_date_column(date_series: pd.Series) -> pd.Series:
@@ -167,7 +180,7 @@ def read_station_csvs(csv_dir: Path) -> pd.DataFrame:
     if not files:
         raise ValueError(f"Nessun file .txt o .csv trovato in {csv_dir}")
     for fp in files:
-        station_id = Path(fp).stem  # il nome file coincide con l'ID della stazione
+        station_id = _normalize_station_id(Path(fp).stem)  # il nome file coincide con l'ID della stazione
         if fp.lower().endswith(".txt"):
             try:
                 df = pd.read_csv(
@@ -644,6 +657,16 @@ def compute_catchment_precipitation_series(
 
     common = meta.index.intersection(ts_wide.columns)
     if common.empty:
+        meta_sample = ", ".join(map(str, meta.index[:5]))
+        ts_sample = ", ".join(map(str, ts_wide.columns[:5]))
+        print(
+            "Nessuna stazione comune tra metadati e serie di precipitazione. "
+            "Verifica che gli ID nei file coincidano."
+        )
+        if meta_sample:
+            print(f"Esempio ID metadati: {meta_sample}")
+        if ts_sample:
+            print(f"Esempio ID precipitazioni: {ts_sample}")
         df = pd.DataFrame(index=date_index)
         df.index.name = "date"
         return df.reset_index()
@@ -799,7 +822,17 @@ def krige_basin_precipitation_grid(
 
     common = meta.index.intersection(ts_wide.columns)
     if common.empty:
-        raise ValueError("Nessuna stazione comune tra metadati e serie di precipitazione.")
+        meta_sample = ", ".join(map(str, meta.index[:5]))
+        ts_sample = ", ".join(map(str, ts_wide.columns[:5]))
+        message = (
+            "Nessuna stazione comune tra metadati e serie di precipitazione. "
+            "Verifica che gli ID nei file coincidano."
+        )
+        if meta_sample:
+            message += f" Esempio ID metadati: {meta_sample}."
+        if ts_sample:
+            message += f" Esempio ID precipitazioni: {ts_sample}."
+        raise ValueError(message)
 
     ts_wide = ts_wide[common]
     station_xy = meta.loc[common, ["x", "y"]]
