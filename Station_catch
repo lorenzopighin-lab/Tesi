@@ -19,7 +19,7 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from Krig_1 import (
+from Krig_2 import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
@@ -312,7 +312,9 @@ def _load_station_points(meta_path: Path):
 
 
 station_metadata, station_lons, station_lats = _load_station_points(STATION_META_PATH)
-
+precip_station_metadata, precip_station_lons, precip_station_lats = _load_station_points(
+    PRECIP_STATION_META_PATH
+)
 def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
     """Annota i nomi delle stazioni su un asse Matplotlib.
 
@@ -603,6 +605,56 @@ add_scale_bar(ax, grid.affine, location='lower right')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 plt.show()
+# Catchment overlay with precipitation stations
+fig, ax = plt.subplots(figsize=(8, 6))
+dem_im = ax.imshow(
+    inflated_dem_masked,
+    extent=grid.extent,
+    cmap='terrain',
+    origin='upper',
+)
+ax.imshow(
+    catch_overlay,
+    extent=grid.extent,
+    origin='upper',
+    cmap=colors.ListedColormap([(1.0, 0.0, 0.0, 0.35)]),
+    zorder=4,
+)
+ax.scatter(
+    [x_snap],
+    [y_snap],
+    s=80,
+    facecolors='none',
+    edgecolors='red',
+    linewidth=1.8,
+    label='Punto',
+)
+if (
+    precip_station_lons is not None
+    and precip_station_lats is not None
+    and getattr(precip_station_lons, "size", 0)
+    and getattr(precip_station_lats, "size", 0)
+):
+    ax.scatter(
+        precip_station_lons,
+        precip_station_lats,
+        s=50,
+        marker='o',
+        facecolors='#90be6d',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=5,
+        label='stazioni precipitazione',
+    )
+    if precip_station_metadata:
+        _annotate_station_labels(ax, precip_station_metadata)
+ax.set_title('Catchment e stazioni di precipitazione', size=14)
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+add_scale_bar(ax, grid.affine, location='lower right')
+plt.colorbar(dem_im, ax=ax, label='Elevation')
+ax.legend(loc='upper right')
+plt.tight_layout()
 #%%branches
 # Limita la griglia al bacino e ricava la rete drenante principale.
 grid.clip_to(catch)
