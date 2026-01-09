@@ -19,7 +19,7 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from Krig_2 import (
+from Krig_1 import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
