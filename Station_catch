@@ -23,7 +23,7 @@ from Krig_2 import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
-from Model_1 import run_model
+from Model_2 import run_model
 
 
 
@@ -32,7 +32,7 @@ from Model_1 import run_model
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE911970.tif"
 POUR_POINT = array.array('f', [9.205593, 53.075661])
 # Soglia di accumulo per lo snap della sezione di chiusura principale.
-SNAP_ACCUMULATION_THRESHOLD = 30000
+SNAP_ACCUMULATION_THRESHOLD = 7000
 # Soglia di accumulo per lo snap dei pixel delle stazioni lungo la rete.
 BRANCH_ACCUMULATION_THRESHOLD = 5000
 MIN_ACCUMULATION_KM2 = 10
@@ -68,16 +68,16 @@ STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coor
 PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE911970")
 # Inserire qui il path al CSV con le colonne ID, Lon, Lat delle stazioni di precipitazione.
 PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE911970.csv")
-PRECIP_DATE_START = "2010-01-01"
+PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
-PRECIP_BUFFER_METERS = 10000.0
+PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
-MODEL_PRECIPITATION_THRESHOLDS = [1.0]  # soglie da applicare quando si lancia Model_1
+MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]  # soglie da applicare quando si lancia Model_1
 CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("model_out")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE911970/model_2_20km")
 
 # --- Opzioni Kriging ---
 RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
@@ -86,7 +86,7 @@ PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da inte
 KRIGING_CATCHMENT_IDS = None
 PROMPT_PLOT_PRECIPITATION = True
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
-PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-05")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
+PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -204,12 +204,13 @@ def plot_precipitation_map(
     if vmax <= vmin:
         vmax = vmin + 1.0
         
-    cmap = plt.get_cmap("Blues")
+    cmap = plt.get_cmap("Blues").copy()
+    cmap.set_bad(color="white", alpha=0.0)
     norm = colors.Normalize(vmin=vmin, vmax=vmax)
 
     fig, ax = plt.subplots(figsize=(10, 8))
     img = ax.imshow(
-        grid_data,
+        np.ma.masked_invalid(grid_data),
         origin="upper",
         extent=extent,
         cmap=cmap,
@@ -218,12 +219,16 @@ def plot_precipitation_map(
 
     basin_mask = np.isfinite(grid_data)
     if basin_mask.any():
-        ax.imshow(
+        x_coords = np.linspace(extent[0], extent[1], width)
+        y_coords = np.linspace(extent[3], extent[2], height)
+        ax.contour(
+            x_coords,
+            y_coords,
             basin_mask,
-            origin="upper",
-            extent=extent,
-            cmap="Greys",
-            alpha=0.15,
+            levels=[0.5],
+            colors="black",
+            linewidths=1.4,
+            zorder=5,
         )
         
     if station_data is not None and not station_data.empty:
@@ -233,7 +238,7 @@ def plot_precipitation_map(
             if np.isfinite(val):
                 point_colors.append(cmap(norm(val)))
             else:
-                point_colors.append("#9e9e9e")
+                point_colors.append("#e53935")
 
         ax.scatter(
             station_data["lon"],
@@ -1462,7 +1467,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE911920"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE911940"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
