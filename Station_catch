@@ -1060,7 +1060,7 @@ selected_coords_list.sort(key=lambda rc: (-acc_view[rc], rc[0], rc[1]))
 channel_mask = branches_raster.astype(bool)
 snap_mask = channel_mask & (acc_view >= SNAP_ACCUMULATION_THRESHOLD)
 # Precalcola gli indici dei pixel che appartengono alla rete (e al bacino, se presente).
-channel_indices = np.argwhere(snap_mask)
+channel_indices = np.argwhere(channel_mask)
 if catch_view is not None and channel_indices.size:
     channel_indices = channel_indices[
         catch_view[channel_indices[:, 0], channel_indices[:, 1]]
@@ -1181,6 +1181,12 @@ for rr, cc in selected_coords_list:
 # Costruisce il set di punti selezionati corrispondenti alle stazioni sulla rete.
 stations_on_network = []
 stations_outside_network = []
+if channel_mask.any():
+    station_snap_mask = channel_mask
+elif catch_view is not None and catch_view.any():
+    station_snap_mask = catch_view
+else:
+    station_snap_mask = np.ones_like(acc_view, dtype=bool)
 
 if station_metadata:
     total_stations = len(station_metadata)
@@ -1209,9 +1215,9 @@ if station_metadata:
         
 
         snapped_xy = None
-        if snap_mask.any():
+        if station_snap_mask.any():
             try:
-                snapped_xy = grid.snap_to_mask(snap_mask, (lon, lat))
+                snapped_xy = grid.snap_to_mask(station_snap_mask, (lon, lat))
             except Exception:
                 snapped_xy = None
 
@@ -1229,13 +1235,12 @@ if station_metadata:
 
         if (
             not (0 <= rsnap < H and 0 <= csnap < W)
-            or not snap_mask[rsnap, csnap]
             or (catch_view is not None and not catch_view[rsnap, csnap])
         ):
             nearest_rc = _nearest_channel_index(rr, cc, channel_indices)
             if nearest_rc is None:
                 nearest_rc = _local_max_index(
-                    rr, cc, acc_view, mask=snap_mask, max_radius=10
+                    rr, cc, acc_view, mask=station_snap_mask, max_radius=10
                 )
             rsnap, csnap = nearest_rc
             xsnap, ysnap = rasterio.transform.xy(
@@ -1243,9 +1248,6 @@ if station_metadata:
             )
             
         if not (0 <= rsnap < H and 0 <= csnap < W):
-            continue
-        if not snap_mask[rsnap, csnap]:
-            stations_outside_network.append(record)
             continue
         if catch_view is not None and not catch_view[rsnap, csnap]:
             stations_outside_network.append(record)
@@ -1277,15 +1279,21 @@ else:
 # Rimuovi eventuali duplicati basati sulle coordinate "snappate" e
 # verifica che tutti i pixel selezionati abbiano coordinate distinte.
 unique_points = []
-seen_snapped_indices = set()
+seen_snapped_indices = {}
 duplicate_count = 0
 
 for point in selected_points:
     snapped_key = point.get("snapped_index")
     if snapped_key in seen_snapped_indices:
+        existing_idx = seen_snapped_indices[snapped_key]
+        existing_point = unique_points[existing_idx]
+        existing_station = str(existing_point.get("station_id") or "").strip()
+        new_station = str(point.get("station_id") or "").strip()
+        if new_station and not existing_station:
+            unique_points[existing_idx] = point
         duplicate_count += 1
         continue
-    seen_snapped_indices.add(snapped_key)
+    seen_snapped_indices[snapped_key] = len(unique_points)
     unique_points.append(point)
 
 if duplicate_count:
@@ -1437,17 +1445,18 @@ os.makedirs("catchments_tif", exist_ok=True)
 for point in selected_points:
     rsnap, csnap = point["snapped_index"]
     x_snap, y_snap = point["snapped_coord"]
-    
-    
+    station_identifier = str(point.get("station_id") or "").strip()
+    is_station = bool(station_identifier) 
 
     if not (0 <= rsnap < H and 0 <= csnap < W):
         failed_points.append({"point": point, "reason": "indice fuori dai limiti"})
         continue
 
     expected_area = acc_view[rsnap, csnap] * cell_area_m2
-    if expected_area <= 0:
+    if expected_area <= 0 and not is_station:
         failed_points.append({"point": point, "reason": "accumulation nulla"})
         continue
+    expected_area_reference = expected_area if expected_area > 0 else None
 
     def _compute_catchment(row, col):
         """Estrae l'area contribuente a partire da una cella della rete."""
@@ -1499,8 +1508,9 @@ for point in selected_points:
             )
             expected_area = acc_view[rsnap, csnap] * cell_area_m2
             if expected_area > 0:
+                expected_area_reference = expected_area
                 mask = _compute_catchment(rsnap, csnap)
-
+                
     if mask is None:
         x_orig, y_orig = point.get("initial_coord", (None, None))
         r_orig, c_orig = point["row"], point["col"]
@@ -1529,13 +1539,14 @@ for point in selected_points:
     point["snapped_coord"] = (float(x_snap), float(y_snap))
 
     actual_area = mask.sum() * cell_area_m2
-    deviation = (
-        abs(actual_area - expected_area) / expected_area if expected_area else np.inf
-    )
-    if deviation > 0.2:
-        print(
-            f"Avviso: deviazione area {deviation*100:.1f}% per il seed in {x_snap:.2f}, {y_snap:.2f}"
-        )
+    if expected_area_reference:
+        deviation = abs(actual_area - expected_area_reference) / expected_area_reference
+        if deviation > 0.2:
+            print(
+                f"Avviso: deviazione area {deviation*100:.1f}% per il seed in {x_snap:.2f}, {y_snap:.2f}"
+            )
+    else:
+        deviation = np.nan
 
     label_id = len(catchment_ids)
     station_identifier = str(point.get("station_id") or "").strip()
@@ -1546,10 +1557,12 @@ for point in selected_points:
         
     catchments.append(mask)
     catchment_ids.append(catchment_id)
-    areas.append(actual_area)
-    expected_areas.append(expected_area)
+    if expected_area_reference:
+        areas.append(actual_area)
+        expected_areas.append(expected_area_reference)
 
-    point["expected_area"] = float(expected_area)
+    if expected_area_reference:
+        point["expected_area"] = float(expected_area_reference)
     point["catchment_area"] = float(actual_area)
     point["deviation"] = float(deviation)
     catchment_points.append(point.copy())
@@ -1616,6 +1629,53 @@ if station_snapped_coords.size:
     )
 _ = plt.title(
     f" Selected pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+    size=14,
+)
+#%%% plot rete con solo le stazioni
+fig, ax = plt.subplots(figsize=(8.5, 6.5))
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+if station_snapped_coords.size:
+    ax.scatter(
+        station_snapped_coords[:, 0],
+        station_snapped_coords[:, 1],
+        s=20,
+        c="orange",
+        edgecolors="k",
+        linewidths=0.3,
+        zorder=6,
+        label="Pixel stazioni",
+    )
+_ = plt.title(
+    f"Station pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+    size=14,
+)
+
+#%%% plot rete con solo i pixel selezionati
+fig, ax = plt.subplots(figsize=(8.5, 6.5))
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+if selected_snapped_coords.size:
+    ax.scatter(
+        selected_snapped_coords[:, 0],
+        selected_snapped_coords[:, 1],
+        s=20,
+        c="red",
+        edgecolors="k",
+        linewidths=0.3,
+        zorder=5,
+        label="Pixel intermedi",
+    )
+_ = plt.title(
+    f"Selected pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
     size=14,
 )
 
