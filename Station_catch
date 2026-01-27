@@ -19,7 +19,7 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from Krig_2 import (
+from krig_arg import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
@@ -78,7 +78,7 @@ KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]  # soglie da applicare quando si lancia Model_1
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/pixel_precipitazion_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_linear")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final")
 
 
 # --- Opzioni Kriging ---
@@ -1932,6 +1932,7 @@ else:
             print(
                 "Nessun ID specificato: verranno elaborati tutti i catchment disponibili."
             )
+    selected_masks = [catchment_map[cid] for cid in selected_ids if cid in catchment_map]
     
     selected_station_ids = [
         cid for cid in station_catchment_ids if cid in selected_ids
