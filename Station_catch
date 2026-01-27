@@ -76,7 +76,8 @@ PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]  # soglie da applicare quando si lancia Model_1
-CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/arg_exp_catchment_precipitation.csv")
+STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/station_precipitation_table.csv")
+PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/pixel_precipitazion_table.csv")
 MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_linear")
 
 
@@ -1565,6 +1566,8 @@ for point in selected_points:
         point["expected_area"] = float(expected_area_reference)
     point["catchment_area"] = float(actual_area)
     point["deviation"] = float(deviation)
+    point["catchment_id"] = catchment_id
+    point["is_station"] = is_station
     catchment_points.append(point.copy())
 
     labels[mask & (labels == 0)] = label_id
@@ -1572,6 +1575,19 @@ for point in selected_points:
 selected_mask = _build_selected_mask(catchment_points)
 pixels_selected = selected_mask.astype(np.uint8)
 
+catchment_map = dict(zip(catchment_ids, catchments))
+station_catchment_ids = [
+    pt["catchment_id"] for pt in catchment_points if pt.get("is_station")
+]
+pixel_catchment_ids = [
+    pt["catchment_id"] for pt in catchment_points if not pt.get("is_station")
+]
+station_catchment_masks = [
+    catchment_map[cid] for cid in station_catchment_ids if cid in catchment_map
+]
+pixel_catchment_masks = [
+    catchment_map[cid] for cid in pixel_catchment_ids if cid in catchment_map
+]
 #%%%plot pixel sulla rete
 sns.set_palette('husl')
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
@@ -1901,8 +1917,6 @@ else:
             requested_ids = []
 
     catchment_map = dict(zip(catchment_ids, catchments))
-    selected_ids = list(catchment_ids)
-    selected_masks = list(catchments)
 
     if requested_ids:
         missing = [cid for cid in requested_ids if cid not in catchment_map]
@@ -1919,7 +1933,18 @@ else:
                 "Nessun ID specificato: verranno elaborati tutti i catchment disponibili."
             )
     
-    selected_masks = [catchment_map[cid] for cid in selected_ids]
+    selected_station_ids = [
+        cid for cid in station_catchment_ids if cid in selected_ids
+    ]
+    selected_pixel_ids = [
+        cid for cid in pixel_catchment_ids if cid in selected_ids
+    ]
+    selected_station_masks = [
+        catchment_map[cid] for cid in selected_station_ids if cid in catchment_map
+    ]
+    selected_pixel_masks = [
+        catchment_map[cid] for cid in selected_pixel_ids if cid in catchment_map
+    ]
 
     if not selected_ids:
         print(
@@ -1931,31 +1956,73 @@ else:
             f"({len(selected_ids)} catchment)."
         )
         try:
-            precip_table = compute_catchment_precipitation_series(
-                catchment_masks=selected_masks,
-                transform=grid.affine,
-                catchment_ids=selected_ids,
-                csv_dir=PRECIP_DATA_DIR,
-                station_meta=PRECIP_STATION_META_PATH,
-                dtm_path=Path(dem_path),
-                dtm_crs=dtm_crs,
-                start_date=PRECIP_DATE_START,
-                end_date=PRECIP_DATE_END,
-                buffer_distance=PRECIP_BUFFER_METERS,
-                min_stations=PRECIP_MIN_STATIONS,
-                max_stations=PRECIP_MAX_STATIONS,
-                aggregation_factor=AGGREGATION_FACTOR,
-                precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
-            )
-            if not precip_table.empty:
-                precip_table.to_csv(CATCHMENT_SERIES_OUTPUT, index=False)
-                print(
-                    "Tabella precipitazioni media catchment salvata in "
-                    f"{CATCHMENT_SERIES_OUTPUT.resolve()}"
+            station_precip_table = pd.DataFrame()
+            pixel_precip_table = pd.DataFrame()
+
+            if selected_station_ids:
+                station_precip_table = compute_catchment_precipitation_series(
+                    catchment_masks=selected_station_masks,
+                    transform=grid.affine,
+                    catchment_ids=selected_station_ids,
+                    csv_dir=PRECIP_DATA_DIR,
+                    station_meta=PRECIP_STATION_META_PATH,
+                    dtm_path=Path(dem_path),
+                    dtm_crs=dtm_crs,
+                    start_date=PRECIP_DATE_START,
+                    end_date=PRECIP_DATE_END,
+                    buffer_distance=PRECIP_BUFFER_METERS,
+                    min_stations=PRECIP_MIN_STATIONS,
+                    max_stations=PRECIP_MAX_STATIONS,
+                    aggregation_factor=AGGREGATION_FACTOR,
+                    precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
                 )
+                if not station_precip_table.empty:
+                    station_precip_table.to_csv(
+                        STATION_PRECIPITATION_OUTPUT, index=False
+                    )
+                    print(
+                        "Tabella precipitazioni media catchment stazioni salvata in "
+                        f"{STATION_PRECIPITATION_OUTPUT.resolve()}"
+                    )
+                else:
+                    print(
+                        "Nessuna serie di precipitazione calcolata per i catchment stazioni."
+                    )
+
+            if selected_pixel_ids:
+                pixel_precip_table = compute_catchment_precipitation_series(
+                    catchment_masks=selected_pixel_masks,
+                    transform=grid.affine,
+                    catchment_ids=selected_pixel_ids,
+                    csv_dir=PRECIP_DATA_DIR,
+                    station_meta=PRECIP_STATION_META_PATH,
+                    dtm_path=Path(dem_path),
+                    dtm_crs=dtm_crs,
+                    start_date=PRECIP_DATE_START,
+                    end_date=PRECIP_DATE_END,
+                    buffer_distance=PRECIP_BUFFER_METERS,
+                    min_stations=PRECIP_MIN_STATIONS,
+                    max_stations=PRECIP_MAX_STATIONS,
+                    aggregation_factor=AGGREGATION_FACTOR,
+                    precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
+                )
+                if not pixel_precip_table.empty:
+                    pixel_precip_table.to_csv(
+                        PIXEL_PRECIPITATION_OUTPUT, index=False
+                    )
+                    print(
+                        "Tabella precipitazioni media catchment pixel salvata in "
+                        f"{PIXEL_PRECIPITATION_OUTPUT.resolve()}"
+                    )
+                else:
+                    print(
+                        "Nessuna serie di precipitazione calcolata per i catchment pixel."
+                    )
+
+            if not station_precip_table.empty:
                 try:
                     output_file = run_model(
-                        CATCHMENT_SERIES_OUTPUT,
+                        STATION_PRECIPITATION_OUTPUT,
                         output_dir=MODEL_OUTPUT_DIR,
                         precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
                     )
@@ -1973,10 +2040,6 @@ else:
                             )
                 except Exception as exc:
                     print(f"Errore durante l'esecuzione del Model: {exc}")
-            else:
-                print(
-                    "Nessuna serie di precipitazione calcolata: verificare dati di input o catchments."
-                )
         except Exception as exc:
             print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
             
