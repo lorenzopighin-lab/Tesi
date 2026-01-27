@@ -23,7 +23,7 @@ from krig_arg import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
-from Model_2 import run_model
+from Model_f import run_model
 
 
 
