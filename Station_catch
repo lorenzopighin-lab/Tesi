@@ -49,7 +49,7 @@ PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 # Sui rami più corti di MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS non vengono
 # selezionati pixel intermedi.
-PIXEL_PLACEMENT_MODE = "equidistant"
+PIXEL_PLACEMENT_MODE = "spacing"
 MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
@@ -1550,12 +1550,35 @@ for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
 
-sc = ax.scatter(
-                    [pt["snapped_coord"][0] for pt in catchment_points],
-                    [pt["snapped_coord"][1] for pt in catchment_points],
-                    s=18, c='red',
-                    edgecolors='k', linewidths=0.3,
-                    zorder=5, label='Pixel selezionati')
+station_points = [
+    pt for pt in catchment_points if str(pt.get("station_id") or "").strip()
+]
+intermediate_points = [
+    pt for pt in catchment_points if not str(pt.get("station_id") or "").strip()
+]
+
+if intermediate_points:
+    ax.scatter(
+        [pt["snapped_coord"][0] for pt in intermediate_points],
+        [pt["snapped_coord"][1] for pt in intermediate_points],
+        s=18,
+        c="red",
+        edgecolors="k",
+        linewidths=0.3,
+        zorder=5,
+        label="Pixel intermedi",
+    )
+if station_points:
+    ax.scatter(
+        [pt["snapped_coord"][0] for pt in station_points],
+        [pt["snapped_coord"][1] for pt in station_points],
+        s=18,
+        c="orange",
+        edgecolors="k",
+        linewidths=0.3,
+        zorder=6,
+        label="Pixel stazioni",
+    )
 _ = plt.title(
     f" Selected pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
     size=14,
