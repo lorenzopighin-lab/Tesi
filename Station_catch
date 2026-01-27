@@ -1576,14 +1576,28 @@ for branch in branches['features']:
 station_points = [
     pt for pt in catchment_points if str(pt.get("station_id") or "").strip()
 ]
-intermediate_points = [
+selected_points = [
     pt for pt in catchment_points if not str(pt.get("station_id") or "").strip()
 ]
 
-if intermediate_points:
+station_snapped_coords = np.array(
+    [pt["snapped_coord"] for pt in station_points], dtype=float
+)
+selected_snapped_coords = np.array(
+    [pt["snapped_coord"] for pt in selected_points], dtype=float
+)
+if station_snapped_coords.size == 0:
+    station_snapped_coords = np.empty((0, 2), dtype=float)
+if selected_snapped_coords.size == 0:
+    selected_snapped_coords = np.empty((0, 2), dtype=float)
+all_snapped_coords = np.vstack(
+    [coords for coords in (station_snapped_coords, selected_snapped_coords) if coords.size]
+) if (station_snapped_coords.size or selected_snapped_coords.size) else np.empty((0, 2), dtype=float)
+
+if selected_snapped_coords.size:
     ax.scatter(
-        [pt["snapped_coord"][0] for pt in intermediate_points],
-        [pt["snapped_coord"][1] for pt in intermediate_points],
+        selected_snapped_coords[:, 0],
+        selected_snapped_coords[:, 1],
         s=18,
         c="red",
         edgecolors="k",
@@ -1591,10 +1605,10 @@ if intermediate_points:
         zorder=5,
         label="Pixel intermedi",
     )
-if station_points:
+if station_snapped_coords.size:
     ax.scatter(
-        [pt["snapped_coord"][0] for pt in station_points],
-        [pt["snapped_coord"][1] for pt in station_points],
+        station_snapped_coords[:, 0],
+        station_snapped_coords[:, 1],
         s=18,
         c="orange",
         edgecolors="k",
