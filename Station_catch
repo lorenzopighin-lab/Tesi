@@ -1233,6 +1233,20 @@ if station_metadata:
         if rsnap is None or csnap is None:
             rsnap, csnap = rr, cc
             xsnap, ysnap = map(float, (lon, lat))
+            
+        if channel_mask.any() and (
+            not (0 <= rsnap < H and 0 <= csnap < W) or not channel_mask[rsnap, csnap]
+        ):
+            nearest_rc = _nearest_channel_index(rr, cc, channel_indices)
+            if nearest_rc is None:
+                nearest_rc = _local_max_index(
+                    rr, cc, acc_view, mask=channel_mask, max_radius=10
+                )
+            if nearest_rc is not None:
+                rsnap, csnap = nearest_rc
+                xsnap, ysnap = rasterio.transform.xy(
+                    grid.affine, rsnap, csnap, offset="center"
+                )
 
         if (
             not (0 <= rsnap < H and 0 <= csnap < W)
