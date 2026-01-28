@@ -19,7 +19,7 @@ import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
 from rasterio.transform import rowcol
-from krig_arg import (
+from krig_wum import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
 )
@@ -29,10 +29,12 @@ from Model_f import run_model
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
-POUR_POINT = array.array('f', [9.596098,	47.627986])
-SNAP_ACCUMULATION_THRESHOLD = 8000
-BRANCH_ACCUMULATION_THRESHOLD = 8000
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE911970.tif"
+POUR_POINT = array.array('f', [9.205593, 53.075661])
+# Soglia di accumulo per lo snap della sezione di chiusura principale.
+SNAP_ACCUMULATION_THRESHOLD = 7000
+# Soglia di accumulo per lo snap dei pixel delle stazioni lungo la rete.
+BRANCH_ACCUMULATION_THRESHOLD = 5000
 MIN_ACCUMULATION_KM2 = 10
 
 
@@ -49,13 +51,11 @@ PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 # Sui rami più corti di MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS non vengono
 # selezionati pixel intermedi.
-PIXEL_PLACEMENT_MODE = "spacing"
-# Numero massimo di pixel intermedi (solo modalità "equidistant").
-MAX_INTERMEDIATE_PIXELS = 3
-# Distanza tra i pixel intermedi (solo modalità "spacing").
-INTERMEDIATE_SPACING_METERS = 1000.0
+PIXEL_PLACEMENT_MODE = "equidistant"
+MAX_INTERMEDIATE_PIXELS = 4
+INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
-MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
+MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
 TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
@@ -63,11 +63,11 @@ PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE111140.csv")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE911970.csv")
 # Inserire qui il path alla cartella con i file .txt delle precipitazioni (uno per stazione).
-PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE111140")
+PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE911970")
 # Inserire qui il path al CSV con le colonne ID, Lon, Lat delle stazioni di precipitazione.
-PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE111140.csv")
+PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE911970.csv")
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 20000.0
@@ -75,10 +75,10 @@ PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
-MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]  # soglie da applicare quando si lancia Model_1
+MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/pixel_precipitazion_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE911970/model_2_final")
 
 
 # --- Opzioni Kriging ---
@@ -1856,7 +1856,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "6"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE911900"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2020,10 +2020,11 @@ else:
                         "Nessuna serie di precipitazione calcolata per i catchment pixel."
                     )
 
-            if not station_precip_table.empty:
+            if not station_precip_table.empty and not pixel_precip_table.empty:
                 try:
                     output_file = run_model(
                         STATION_PRECIPITATION_OUTPUT,
+                        PIXEL_PRECIPITATION_OUTPUT,
                         output_dir=MODEL_OUTPUT_DIR,
                         precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
                     )
@@ -2041,6 +2042,10 @@ else:
                             )
                 except Exception as exc:
                     print(f"Errore durante l'esecuzione del Model: {exc}")
+            elif station_precip_table.empty:
+                    print("Serie di precipitazione stazioni mancanti: Model non eseguito.")
+            elif pixel_precip_table.empty:
+                    print("Serie di precipitazione pixel mancanti: Model non eseguito.")
         except Exception as exc:
             print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
             
