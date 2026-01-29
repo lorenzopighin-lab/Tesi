@@ -59,7 +59,7 @@ MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
-PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
+PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/spacing/selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
@@ -78,7 +78,7 @@ KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/pixel_precipitazion_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/equidistant")
 
 
 # --- Opzioni Kriging ---
@@ -1882,7 +1882,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "45"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "287"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -1985,12 +1985,32 @@ else:
         try:
             station_precip_table = pd.DataFrame()
             pixel_precip_table = pd.DataFrame()
+            
+            combined_precip_table = pd.DataFrame()
+
+            def _select_precip_columns(source_df, ids):
+                if source_df.empty or not ids:
+                    return pd.DataFrame()
+                available_ids = [cid for cid in ids if cid in source_df.columns]
+                if not available_ids:
+                    return pd.DataFrame()
+                return source_df[["date"] + available_ids].copy()
+
+            combined_ids = []
+            combined_masks = []
 
             if selected_station_ids:
-                station_precip_table = compute_catchment_precipitation_series(
-                    catchment_masks=selected_station_masks,
+                combined_ids.extend(selected_station_ids)
+                combined_masks.extend(selected_station_masks)
+            if selected_pixel_ids:
+                combined_ids.extend(selected_pixel_ids)
+                combined_masks.extend(selected_pixel_masks)
+
+            if combined_ids:
+                combined_precip_table = compute_catchment_precipitation_series(
+                    catchment_masks=combined_masks,
                     transform=grid.affine,
-                    catchment_ids=selected_station_ids,
+                    catchment_ids=combined_ids,
                     csv_dir=PRECIP_DATA_DIR,
                     station_meta=PRECIP_STATION_META_PATH,
                     dtm_path=Path(dem_path),
@@ -2003,6 +2023,15 @@ else:
                     aggregation_factor=AGGREGATION_FACTOR,
                     precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
                 )
+                
+                station_precip_table = _select_precip_columns(
+                    combined_precip_table, selected_station_ids
+                )
+                pixel_precip_table = _select_precip_columns(
+                    combined_precip_table, selected_pixel_ids
+                )
+
+            if selected_station_ids:
                 if not station_precip_table.empty:
                     station_precip_table.to_csv(
                         STATION_PRECIPITATION_OUTPUT, index=False
@@ -2017,22 +2046,6 @@ else:
                     )
 
             if selected_pixel_ids:
-                pixel_precip_table = compute_catchment_precipitation_series(
-                    catchment_masks=selected_pixel_masks,
-                    transform=grid.affine,
-                    catchment_ids=selected_pixel_ids,
-                    csv_dir=PRECIP_DATA_DIR,
-                    station_meta=PRECIP_STATION_META_PATH,
-                    dtm_path=Path(dem_path),
-                    dtm_crs=dtm_crs,
-                    start_date=PRECIP_DATE_START,
-                    end_date=PRECIP_DATE_END,
-                    buffer_distance=PRECIP_BUFFER_METERS,
-                    min_stations=PRECIP_MIN_STATIONS,
-                    max_stations=PRECIP_MAX_STATIONS,
-                    aggregation_factor=AGGREGATION_FACTOR,
-                    precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
-                )
                 if not pixel_precip_table.empty:
                     pixel_precip_table.to_csv(
                         PIXEL_PRECIPITATION_OUTPUT, index=False
