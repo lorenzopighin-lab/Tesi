@@ -49,7 +49,7 @@ PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 # Sui rami più corti di MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS non vengono
 # selezionati pixel intermedi.
-PIXEL_PLACEMENT_MODE = "equidistant"
+PIXEL_PLACEMENT_MODE = "spacing"
 # Numero massimo di pixel intermedi (solo modalità "equidistant").
 MAX_INTERMEDIATE_PIXELS = 4
 # Distanza tra i pixel intermedi (solo modalità "spacing").
@@ -59,7 +59,7 @@ MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
-PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/equidistant/selected_pixels_table.csv")
+PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/spacing/selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
@@ -1936,6 +1936,19 @@ def plot_selected_pixel_catchment(
             zorder=6,
             label="Pixel stazioni",
         )
+        station_label_records = []
+        if catchment_points:
+            for pt in catchment_points:
+                station_id = str(pt.get("station_id") or "").strip()
+                if not station_id:
+                    continue
+                x_coord, y_coord = pt.get("snapped_coord", (None, None))
+                if x_coord is None or y_coord is None:
+                    continue
+                station_label_records.append(
+                    {"station_id": station_id, "lon": x_coord, "lat": y_coord}
+                )
+        _annotate_station_labels(ax, station_label_records)
 
     catchment_label = catchment_ids[index]
     selected_point = next(
@@ -1966,7 +1979,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "250"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_301"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -1983,7 +1996,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "250"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_301"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
