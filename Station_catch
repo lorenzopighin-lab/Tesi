@@ -49,7 +49,7 @@ PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 # "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 # Sui rami più corti di MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS non vengono
 # selezionati pixel intermedi.
-PIXEL_PLACEMENT_MODE = "spacing"
+PIXEL_PLACEMENT_MODE = "equidistant"
 # Numero massimo di pixel intermedi (solo modalità "equidistant").
 MAX_INTERMEDIATE_PIXELS = 4
 # Distanza tra i pixel intermedi (solo modalità "spacing").
@@ -59,7 +59,7 @@ MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
-PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/spacing/selected_pixels_table.csv")
+PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/equidistant/selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
@@ -1755,6 +1755,29 @@ if expected_areas:
     print(f"Deviazione media area rispetto ad accumulation: {np.nanmean(deviation_pct):.2f}%")
 #%%% Plot Aree contribuenti
 
+def _resolve_catchment_index(catchment_id, catchment_ids):
+    """Restituisce l'indice del catchment richiesto."""
+    if not catchment_ids:
+        raise ValueError("È necessario fornire gli ID dei catchment per il plotting")
+
+    if isinstance(catchment_id, int):
+        index = catchment_id
+    else:
+        cid_str = str(catchment_id)
+        if cid_str.isdigit():
+            index = int(cid_str)
+        else:
+            try:
+                index = catchment_ids.index(cid_str)
+            except ValueError as exc:
+                raise KeyError(f"Catchment ID '{catchment_id}' non trovato") from exc
+
+    if not (0 <= index < len(catchment_ids)):
+        raise IndexError(
+            f"Indice catchment {catchment_id!r} fuori dall'intervallo disponibile"
+        )
+    return index
+
 def plot_catchment_i(catchment_id,
                      catchments,        # lista di mask boolean (come creato prima)
                      xs, ys,            # coordinate dei seed (solo sottobacini)
@@ -1775,27 +1798,8 @@ def plot_catchment_i(catchment_id,
     
     if not catchments:
         raise ValueError("Nessun catchment disponibile per il plotting")
-    if not catchment_ids:
-        raise ValueError("È necessario fornire gli ID dei catchment per il plotting")
-
-    index = None
-
-    if isinstance(catchment_id, int):
-        index = catchment_id
-    else:
-        cid_str = str(catchment_id)
-        if cid_str.isdigit():
-            index = int(cid_str)
-        else:
-            try:
-                index = catchment_ids.index(cid_str)
-            except ValueError as exc:
-                raise KeyError(f"Catchment ID '{catchment_id}' non trovato") from exc
-
-    if index is None or not (0 <= index < len(catchment_ids)):
-        raise IndexError(
-            f"Indice catchment {catchment_id!r} fuori dall'intervallo disponibile"
-        )
+        
+    index = _resolve_catchment_index(catchment_id, catchment_ids)
 
     mask_i = catchments[index]          # boolean array (H, W)
     h, w = mask_i.shape
@@ -1881,8 +1885,88 @@ def plot_catchment_i(catchment_id,
     ax.legend(loc="best")
     plt.show()
     
+def plot_selected_pixel_catchment(
+    catchment_id,
+    *,
+    catchments,
+    catchment_ids,
+    catchment_points,
+    catch,
+    transform_view,
+    station_coords=None,
+    dem_view=None,
+):
+    """Plot del catchment per un singolo pixel scelto + stazioni sulla rete."""
+    if not catchments:
+        raise ValueError("Nessun catchment disponibile per il plotting")
+
+    index = _resolve_catchment_index(catchment_id, catchment_ids)
+    mask_i = catchments[index]
+    h, w = mask_i.shape
+    xmin, ymin, xmax, ymax = rasterio.transform.array_bounds(h, w, transform_view)
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+    if dem_view is not None and dem_view.shape == mask_i.shape:
+        ax.imshow(dem_view, extent=(xmin, xmax, ymin, ymax), origin="upper", cmap="gray")
+
+    ax.imshow(
+        np.where(catch, 1, np.nan),
+        extent=(xmin, xmax, ymin, ymax),
+        origin="upper",
+        alpha=0.25,
+    )
+    ax.imshow(
+        np.where(mask_i, 1, np.nan),
+        extent=(xmin, xmax, ymin, ymax),
+        origin="upper",
+    )
+
+    for branch in branches["features"]:
+        line = np.asarray(branch["geometry"]["coordinates"])
+        plt.plot(line[:, 0], line[:, 1], alpha=0.5)
+
+    if station_coords is not None and station_coords.size:
+        ax.scatter(
+            station_coords[:, 0],
+            station_coords[:, 1],
+            s=22,
+            c="orange",
+            edgecolors="k",
+            linewidths=0.3,
+            zorder=6,
+            label="Pixel stazioni",
+        )
+
+    catchment_label = catchment_ids[index]
+    selected_point = next(
+        (pt for pt in catchment_points if pt.get("catchment_id") == catchment_label),
+        None,
+    )
+    if selected_point is not None:
+        x_sel, y_sel = selected_point.get("snapped_coord", (None, None))
+        if x_sel is not None and y_sel is not None:
+            ax.scatter(
+                [x_sel],
+                [y_sel],
+                s=45,
+                marker="o",
+                facecolor="yellow",
+                edgecolor="k",
+                linewidth=0.6,
+                label=f"pixel {catchment_label}",
+            )
+
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(f"Area contribuente {catchment_label} con stazioni sulla rete")
+    add_scale_bar(ax, transform_view, location="lower right")
+    ax.legend(loc="best")
+    plt.show()
+
     
-catchment_selection = "287"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "250"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -1898,7 +1982,22 @@ if catchment_id_to_plot is not None:
     )
 else:
     print("Nessun catchment valido da plottare.")
+    
+operator_pixel_selection = "250"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
+if operator_pixel_id is not None:
+    plot_selected_pixel_catchment(
+        operator_pixel_id,
+        catchments=catchments,
+        catchment_ids=catchment_ids,
+        catchment_points=catchment_points,
+        catch=grid.view(catch),
+        transform_view=grid.affine,
+        station_coords=station_snapped_coords,
+    )
+else:
+    print("Nessun pixel selezionato per il plot dedicato.")
 #%% Serie di precipitazione media per catchment
 if not RUN_KRIGING:
     print("Kriging disabilitato; eseguita solo l'estrazione della rete.")
