@@ -24,7 +24,7 @@ from krig_arg import (
     krige_basin_precipitation_grid,
 )
 from Model_f import run_model
-
+from max_rho_1 import run as run_max_rho_1
 
 
 # --- Configurazione generale ---
@@ -1396,6 +1396,8 @@ def _format_str_or_empty(value):
 pixel_table_rows = []
 main_seed_rc = (int(main_seed_row), int(main_seed_col))
 
+
+
 for idx, point in enumerate(selected_points, start=1):
     rsnap, csnap = point.get("snapped_index", (None, None))
     xsnap, ysnap = point.get("snapped_coord", (None, None))
@@ -2229,16 +2231,28 @@ else:
                     )
                     if output_file:
                         if isinstance(output_file, list):
-                            for model_output in output_file:
-                                print(
-                                    "Output Model salvato in "
-                                    f"{model_output.resolve()}"
-                                )
+                            model_outputs = output_file
                         else:
+                            model_outputs = [output_file]
+
+                        for model_output in model_outputs:
                             print(
                                 "Output Model salvato in "
-                                f"{output_file.resolve()}"
+                                f"{model_output.resolve()}"
                             )
+                            try:
+                                filtered_output = model_output.with_name(
+                                    f"{model_output.stem}_max_rho_1.csv"
+                                )
+                                run_max_rho_1(
+                                    model_output,
+                                    output_csv=filtered_output,
+                                )
+                            except Exception as exc:
+                                print(
+                                    "Errore durante il calcolo max_rho_1 "
+                                    f"per {model_output}: {exc}"
+                                )
                 except Exception as exc:
                     print(f"Errore durante l'esecuzione del Model: {exc}")
             elif station_precip_table.empty:
