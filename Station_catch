@@ -800,19 +800,6 @@ if meters_per_unit and np.isfinite(meters_per_unit):
         total_network_length_m += branch_length_units * meters_per_unit
 
 total_network_length_km = total_network_length_m / 1000.0
-if main_catchment_area_km2 > 0:
-    drainage_density = total_network_length_km / main_catchment_area_km2
-    print(
-        "Densità di drenaggio: "
-        f"{drainage_density:.4f} km/km² "
-        f"(lunghezza rete {total_network_length_km:.2f} km, "
-        f"area bacino {main_catchment_area_km2:.2f} km²)"
-    )
-else:
-    print(
-        "Area del bacino nulla o non valida: impossibile calcolare "
-        "la densità di drenaggio."
-    )
                                       
 # coordinate del seed principale nella view clippata
 main_seed_row, main_seed_col = map(int, rowcol(grid.affine, x_snap, y_snap))
@@ -1801,6 +1788,19 @@ if expected_areas:
                              np.abs(areas_arr - expected_arr) / expected_arr * 100,
                              np.nan)
     print(f"Deviazione media area rispetto ad accumulation: {np.nanmean(deviation_pct):.2f}%")
+if main_catchment_area_km2 > 0:
+    drainage_density = total_network_length_km / main_catchment_area_km2
+    print(
+        "Densità di drenaggio: "
+        f"{drainage_density:.4f} km/km² "
+        f"(lunghezza rete {total_network_length_km:.2f} km, "
+        f"area bacino {main_catchment_area_km2:.2f} km²)"
+    )
+else:
+    print(
+        "Area del bacino nulla o non valida: impossibile calcolare "
+        "la densità di drenaggio."
+    )
 #%%% Plot Aree contribuenti
 
 def _resolve_catchment_index(catchment_id, catchment_ids):
