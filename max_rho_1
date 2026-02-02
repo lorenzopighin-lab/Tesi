@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 
-INPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\DE11140\model_2_final\spacing\model_output_threshold_3p0_branch8000.csv")
+INPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\DE11140\model_2_final\spacing\model_output_threshold_3p0_20260202_195035.csv")
 OUTPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\DE11140\model_2_final\spacing\pixel_station_max_rho_1.csv")
 
 PIXEL_COLUMN = "pixel_id"
@@ -19,7 +19,7 @@ RHO_COLUMN = "rho_1"
 
 OUTPUT_PIXEL_COLUMN = "Pixel_id"
 OUTPUT_STATION_COLUMN = "Station_id"
-
+OUTPUT_MEAN_RHO_COLUMN = "rho_1_mean"
 
 def compute_max_rho_per_pixel(
     data: pd.DataFrame,
@@ -44,11 +44,22 @@ def compute_max_rho_per_pixel(
 
     if working.empty:
         return pd.DataFrame(
-            columns=[OUTPUT_PIXEL_COLUMN, OUTPUT_STATION_COLUMN, rho_column]
+            columns=[
+                OUTPUT_PIXEL_COLUMN,
+                OUTPUT_STATION_COLUMN,
+                rho_column,
+                OUTPUT_MEAN_RHO_COLUMN,
+            ]
         )
 
     idx = working.groupby(pixel_column)[rho_column].idxmax()
     result = working.loc[idx, [pixel_column, station_column, rho_column]].copy()
+    mean_rho = (
+        working.groupby(pixel_column, as_index=False)[rho_column]
+        .mean()
+        .rename(columns={rho_column: OUTPUT_MEAN_RHO_COLUMN})
+    )
+    result = result.merge(mean_rho, on=pixel_column, how="left")
     result = result.rename(
         columns={
             pixel_column: OUTPUT_PIXEL_COLUMN,
