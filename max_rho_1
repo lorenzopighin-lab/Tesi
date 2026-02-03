@@ -19,6 +19,7 @@ RHO_COLUMN = "rho_1"
 
 OUTPUT_PIXEL_COLUMN = "Pixel_id"
 OUTPUT_STATION_COLUMN = "Station_id"
+OUTPUT_MAX_RHO_COLUMN = "rho_1_max"
 OUTPUT_MEAN_RHO_COLUMN = "rho_1_mean"
 
 def compute_max_rho_per_pixel(
@@ -47,7 +48,7 @@ def compute_max_rho_per_pixel(
             columns=[
                 OUTPUT_PIXEL_COLUMN,
                 OUTPUT_STATION_COLUMN,
-                rho_column,
+                OUTPUT_MAX_RHO_COLUMN,
                 OUTPUT_MEAN_RHO_COLUMN,
             ]
         )
@@ -64,6 +65,7 @@ def compute_max_rho_per_pixel(
         columns={
             pixel_column: OUTPUT_PIXEL_COLUMN,
             station_column: OUTPUT_STATION_COLUMN,
+            rho_column: OUTPUT_MAX_RHO_COLUMN,
         }
     )
     result = result.sort_values(by=OUTPUT_PIXEL_COLUMN).reset_index(drop=True)
