@@ -1530,6 +1530,12 @@ if station_metadata:
 else:
     print("Nessun metadata stazioni disponibile: nessuna stazione selezionata.")
 
+station_ids_on_network = {
+    str(record.get("station_id") or "").strip()
+    for record in stations_on_network
+    if str(record.get("station_id") or "").strip()
+}
+
 # Rimuovi eventuali duplicati basati sulle coordinate "snappate" e
 # verifica che tutti i pixel selezionati abbiano coordinate distinte.
 unique_points = []
@@ -1856,8 +1862,10 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
 
 station_points = [
-    pt for pt in catchment_points if str(pt.get("station_id") or "").strip()
-]
+    pt
+    for pt in catchment_points
+    if str(pt.get("station_id") or "").strip() in station_ids_on_network
+    ]
 selected_points = [
     pt for pt in catchment_points if not str(pt.get("station_id") or "").strip()
 ]
