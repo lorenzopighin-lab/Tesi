@@ -13,7 +13,8 @@ from pathlib import Path
 from datetime import datetime
 
 CSV_DIR  = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\kriging_out")  # ← cambia qui
-CSV_FILE = "catchment_precipitation_table.csv"                           # ← o cambia nome
+STATION_CSV_FILE = "station_precipitation_table.csv"
+PIXEL_CSV_FILE = "pixel_precipitazion_table.csv"                          # ← o cambia nome
 OUTPUT_DIR = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out")
 
 def _safe_mean(values: np.ndarray) -> float:
@@ -87,29 +88,54 @@ def _compute_parameters(h_1: np.ndarray, h_2: np.ndarray) -> dict:
     }
 
 
-def compute_from_dataframe(data: pd.DataFrame) -> pd.DataFrame:
-    catchment_columns: List[str] = [
-        col for col in data.columns if col.lower().startswith("catchment_")
-    ]
+def _extract_catchment_columns(data: pd.DataFrame) -> List[str]:
+    return [col for col in data.columns if col.lower().startswith("catchment_")]
 
-    if len(catchment_columns) < 2:
-        raise ValueError("The CSV file must contain at least two 'catchment_' columns")
-    
+def _align_timeseries(
+    station_data: pd.DataFrame,
+    pixel_data: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if "date" in station_data.columns and "date" in pixel_data.columns:
+        station = station_data.set_index("date")
+        pixel = pixel_data.set_index("date")
+        common_index = station.index.intersection(pixel.index)
+        if common_index.empty:
+            raise ValueError("No overlapping dates between station and pixel series")
+        return station.loc[common_index], pixel.loc[common_index]
+    if len(station_data) != len(pixel_data):
+        raise ValueError("Station and pixel series must have the same length")
+    return station_data.reset_index(drop=True), pixel_data.reset_index(drop=True)
+
+
+def compute_from_dataframes(
+    station_data: pd.DataFrame,
+    pixel_data: pd.DataFrame,
+) -> pd.DataFrame:
+    station_columns = _extract_catchment_columns(station_data)
+    pixel_columns = _extract_catchment_columns(pixel_data)
+
+    if not station_columns:
+        raise ValueError("Station CSV must contain 'catchment_' columns")
+    if not pixel_columns:
+        raise ValueError("Pixel CSV must contain 'catchment_' columns")
+
+    station_aligned, pixel_aligned = _align_timeseries(station_data, pixel_data)
+
     results = []
-    for col_a, col_b in itertools.combinations(catchment_columns, 2):
-        h_1 = data[col_a].to_numpy(dtype=float)
-        h_2 = data[col_b].to_numpy(dtype=float)
-
-        params = _compute_parameters(h_1, h_2)
-        params.update({
-            "catchment_a": col_a,
-            "catchment_b": col_b,
-        })
-        results.append(params)
+    for pixel_col in pixel_columns:
+        h_pixel = pixel_aligned[pixel_col].to_numpy(dtype=float)
+        for station_col in station_columns:
+            h_station = station_aligned[station_col].to_numpy(dtype=float)
+            params = _compute_parameters(h_pixel, h_station)
+            params.update({
+                "pixel_id": pixel_col,
+                "station_id": station_col,
+            })
+            results.append(params)
 
     columns_order = [
-        "catchment_a",
-        "catchment_b",
+        "pixel_id",
+        "station_id",
         "lambda_1t",
         "lambda_2t",
         "lambda_1",
@@ -129,9 +155,10 @@ def compute_from_dataframe(data: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(results, columns=columns_order)
 
-def compute_from_csv(csv_path: str) -> pd.DataFrame:
-    data = pd.read_csv(csv_path)
-    return compute_from_dataframe(data)
+def compute_from_csvs(station_csv_path: str, pixel_csv_path: str) -> pd.DataFrame:
+    station_data = pd.read_csv(station_csv_path)
+    pixel_data = pd.read_csv(pixel_csv_path)
+    return compute_from_dataframes(station_data, pixel_data)
 
 
 def _apply_precipitation_threshold(
@@ -170,25 +197,39 @@ def _resolve_csv_path(csv_dir: Path, csv_file: str | None = None) -> Path:
     return candidates[0]
 
 def run_model(
-    csv_path: str | Path | None = None,
+    station_csv_path: str | Path | None = None,
+    pixel_csv_path: str | Path | None = None,
     *,
     csv_dir: Path | None = None,
-    csv_file: str | None = None,
+    station_csv_file: str | None = None,
+    pixel_csv_file: str | None = None,
     output_dir: Path | None = None,
-precipitation_thresholds: List[float] | None = None,
+    precipitation_thresholds: List[float] | None = None,
 ) -> Path | List[Path] | None:
-    if csv_path is None:
-        resolved_csv = _resolve_csv_path(
+    if station_csv_path is None:
+        resolved_station_csv = _resolve_csv_path(
             csv_dir or CSV_DIR,
-            csv_file or CSV_FILE,
+            station_csv_file or STATION_CSV_FILE,
         )
     else:
-        resolved_csv = Path(csv_path)
-        if not resolved_csv.exists():
-            raise FileNotFoundError(f"Non trovo il file: {resolved_csv}")
+        resolved_station_csv = Path(station_csv_path)
+        if not resolved_station_csv.exists():
+            raise FileNotFoundError(f"Non trovo il file: {resolved_station_csv}")
 
-    print(f"Uso CSV: {resolved_csv}")
-    data = pd.read_csv(resolved_csv)
+    if pixel_csv_path is None:
+        resolved_pixel_csv = _resolve_csv_path(
+            csv_dir or CSV_DIR,
+            pixel_csv_file or PIXEL_CSV_FILE,
+        )
+    else:
+        resolved_pixel_csv = Path(pixel_csv_path)
+        if not resolved_pixel_csv.exists():
+            raise FileNotFoundError(f"Non trovo il file: {resolved_pixel_csv}")
+
+    print(f"Uso CSV stazioni: {resolved_station_csv}")
+    print(f"Uso CSV pixel: {resolved_pixel_csv}")
+    station_data = pd.read_csv(resolved_station_csv)
+    pixel_data = pd.read_csv(resolved_pixel_csv)
     thresholds = precipitation_thresholds or [None]
     output_files: List[Path] = []
     multiple_thresholds = len(thresholds) > 1
@@ -199,10 +240,11 @@ precipitation_thresholds: List[float] | None = None,
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     for threshold in thresholds:
-        thresholded_data = _apply_precipitation_threshold(data, threshold)
-        results = compute_from_dataframe(thresholded_data)
+        thresholded_station = _apply_precipitation_threshold(station_data, threshold)
+        thresholded_pixel = _apply_precipitation_threshold(pixel_data, threshold)
+        results = compute_from_dataframes(thresholded_station, thresholded_pixel)
         if results.empty:
-            print("No catchment combinations found.")
+            print("No station/pixel combinations found.")
             continue
         results.insert(
             0,
