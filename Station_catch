@@ -97,7 +97,6 @@ PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2
 PLOT_RHO_PIXELS = True
 PROMPT_RHO_CSV = True
 
-
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
         km_value = length_meters / 1000.0
@@ -334,6 +333,19 @@ def plot_rho_pixels_on_network(
     *,
     transform=None,
 ):
+    def _normalize_pixel_id(value) -> int | None:
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.lower().startswith("catchment_"):
+            text = text.split("_", 1)[1]
+        try:
+            return int(float(text))
+        except (TypeError, ValueError):
+            return None
+    
     rho_table = pd.read_csv(rho_csv_path)
     pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
     rho_max_col = _find_column(rho_table, ["rho_1_max"])
@@ -357,7 +369,7 @@ def plot_rho_pixels_on_network(
             rho_mean_col: "rho_1_mean",
         }
     )
-    rho_values["pixel_id"] = pd.to_numeric(rho_values["pixel_id"], errors="coerce")
+    rho_values["pixel_id"] = rho_values["pixel_id"].apply(_normalize_pixel_id)
     rho_values["rho_1_max"] = pd.to_numeric(rho_values["rho_1_max"], errors="coerce")
     rho_values["rho_1_mean"] = pd.to_numeric(rho_values["rho_1_mean"], errors="coerce")
     rho_values = rho_values.dropna(subset=["pixel_id"])
@@ -1838,7 +1850,7 @@ if station_snapped_coords.size:
         station_snapped_coords[:, 0],
         station_snapped_coords[:, 1],
         s=18,
-        c="orange",
+        c="darkblue",
         edgecolors="k",
         linewidths=0.3,
         zorder=6,
@@ -1861,7 +1873,7 @@ if station_snapped_coords.size:
         station_snapped_coords[:, 0],
         station_snapped_coords[:, 1],
         s=20,
-        c="orange",
+        c="darkblue",
         edgecolors="k",
         linewidths=0.3,
         zorder=6,
@@ -2328,21 +2340,11 @@ else:
                 f"({len(selected_ids)} catchment)."
             )
             try:
-                combined_ids = []
-                combined_masks = []
-
-                if selected_station_ids:
-                    combined_ids.extend(selected_station_ids)
-                    combined_masks.extend(selected_station_masks)
-                if selected_pixel_ids:
-                    combined_ids.extend(selected_pixel_ids)
-                    combined_masks.extend(selected_pixel_masks)
-
-                if combined_ids:
+                if selected_ids:
                     combined_precip_table = compute_catchment_precipitation_series(
-                        catchment_masks=combined_masks,
+                        catchment_masks=selected_masks,
                         transform=grid.affine,
-                        catchment_ids=combined_ids,
+                        catchment_ids=selected_ids,
                         csv_dir=PRECIP_DATA_DIR,
                         station_meta=PRECIP_STATION_META_PATH,
                         dtm_path=Path(dem_path),
@@ -2358,7 +2360,7 @@ else:
                     station_precip_table = _select_precip_columns(
                         combined_precip_table, selected_station_ids
                     )
-                pixel_precip_table = _select_precip_columns(
+                    pixel_precip_table = _select_precip_columns(
                         combined_precip_table, selected_pixel_ids
                     )
 
@@ -2423,18 +2425,17 @@ else:
                 combined_precip_table, selected_ids
             )
 
-    model_input_path = None
-    if not combined_precip_table.empty:
-        model_input_path = COMBINED_PRECIPITATION_OUTPUT
-        if not RUN_KRIGING:
-            combined_precip_table.to_csv(COMBINED_PRECIPITATION_OUTPUT, index=False)
-    elif not RUN_KRIGING:
-        print("Serie di precipitazione combinate mancanti: Model non eseguito.")
+    if not RUN_KRIGING and not combined_precip_table.empty:
+        combined_precip_table.to_csv(COMBINED_PRECIPITATION_OUTPUT, index=False)
 
-    if model_input_path:
+    if not station_precip_table.empty and not pixel_precip_table.empty:
+        if not RUN_KRIGING:
+            station_precip_table.to_csv(STATION_PRECIPITATION_OUTPUT, index=False)
+            pixel_precip_table.to_csv(PIXEL_PRECIPITATION_OUTPUT, index=False)
         try:
             output_file = run_model(
-                model_input_path,
+                STATION_PRECIPITATION_OUTPUT,
+                PIXEL_PRECIPITATION_OUTPUT,
                 output_dir=MODEL_OUTPUT_DIR,
                 precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
             )
