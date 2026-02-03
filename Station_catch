@@ -59,7 +59,7 @@ MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
-PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/spacing/selected_pixels_table.csv")
+PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
@@ -76,13 +76,18 @@ PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
-STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/station_precipitation_table.csv")
-PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/pixel_precipitazion_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE11140/model_2_final/spacing")
+STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_station_precipitation_table.csv")
+PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_pixel_precipitazion_table.csv")
+COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_catchment_precipitation_table.csv")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing")
 
 
 # --- Opzioni Kriging ---
 RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
+USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
+EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
+EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
+EXISTING_PIXEL_PRECIP_TABLE = PIXEL_PRECIPITATION_OUTPUT
 PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da interpolare
 # Esempio: ["catchment_001", "catchment_010"] oppure stringa "catchment_001,catchment_010"
 KRIGING_CATCHMENT_IDS = None
@@ -2195,9 +2200,52 @@ if operator_pixel_id is not None:
 else:
     print("Nessun pixel selezionato per il plot dedicato.")
 #%% Serie di precipitazione media per catchment
-if not RUN_KRIGING:
-    print("Kriging disabilitato; eseguita solo l'estrazione della rete.")
-elif not catchments:
+station_precip_table = pd.DataFrame()
+pixel_precip_table = pd.DataFrame()
+combined_precip_table = pd.DataFrame()
+
+def _load_existing_precip_tables():
+    if not USE_EXISTING_PRECIP_TABLES:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    combined_df = pd.DataFrame()
+    station_df = pd.DataFrame()
+    pixel_df = pd.DataFrame()
+    if EXISTING_COMBINED_PRECIP_TABLE.exists():
+        combined_df = pd.read_csv(EXISTING_COMBINED_PRECIP_TABLE)
+        print(
+            "Serie precipitazioni combinate caricate da "
+            f"{EXISTING_COMBINED_PRECIP_TABLE.resolve()}"
+        )
+    else:
+        print(
+            "File serie precipitazioni combinate non trovato: "
+            f"{EXISTING_COMBINED_PRECIP_TABLE}"
+        )
+    if EXISTING_STATION_PRECIP_TABLE.exists():
+        station_df = pd.read_csv(EXISTING_STATION_PRECIP_TABLE)
+        print(
+            "Serie precipitazioni stazioni caricate da "
+            f"{EXISTING_STATION_PRECIP_TABLE.resolve()}"
+        )
+    if EXISTING_PIXEL_PRECIP_TABLE.exists():
+        pixel_df = pd.read_csv(EXISTING_PIXEL_PRECIP_TABLE)
+        print(
+            "Serie precipitazioni pixel caricate da "
+            f"{EXISTING_PIXEL_PRECIP_TABLE.resolve()}"
+        )
+    return combined_df, station_df, pixel_df
+
+
+def _select_precip_columns(source_df, ids):
+    if source_df.empty or not ids:
+        return pd.DataFrame()
+    available_ids = [cid for cid in ids if cid in source_df.columns]
+    if not available_ids:
+        return pd.DataFrame()
+    return source_df[["date"] + available_ids].copy()
+
+
+if not catchments:
     print("Nessun catchment disponibile per il calcolo delle precipitazioni medie.")
 else:
     crs_obj = profile.get("crs") if isinstance(profile, dict) else None
@@ -2268,157 +2316,186 @@ else:
         catchment_map[cid] for cid in selected_pixel_ids if cid in catchment_map
     ]
 
-    if not selected_ids:
-        print(
-            "Nessun catchment selezionato per il kriging; eseguita solo l'estrazione della rete."
-        )
+    if RUN_KRIGING:
+        if not selected_ids:
+            print(
+                "Nessun catchment selezionato per il kriging; "
+                "eseguita solo l'estrazione della rete."
+            )
+        else:
+            print(
+                "Avvio calcolo serie di precipitazione media per catchment tramite kriging "
+                f"({len(selected_ids)} catchment)."
+            )
+            try:
+                combined_ids = []
+                combined_masks = []
+
+                if selected_station_ids:
+                    combined_ids.extend(selected_station_ids)
+                    combined_masks.extend(selected_station_masks)
+                if selected_pixel_ids:
+                    combined_ids.extend(selected_pixel_ids)
+                    combined_masks.extend(selected_pixel_masks)
+
+                if combined_ids:
+                    combined_precip_table = compute_catchment_precipitation_series(
+                        catchment_masks=combined_masks,
+                        transform=grid.affine,
+                        catchment_ids=combined_ids,
+                        csv_dir=PRECIP_DATA_DIR,
+                        station_meta=PRECIP_STATION_META_PATH,
+                        dtm_path=Path(dem_path),
+                        dtm_crs=dtm_crs,
+                        start_date=PRECIP_DATE_START,
+                        end_date=PRECIP_DATE_END,
+                        buffer_distance=PRECIP_BUFFER_METERS,
+                        min_stations=PRECIP_MIN_STATIONS,
+                        max_stations=PRECIP_MAX_STATIONS,
+                        aggregation_factor=AGGREGATION_FACTOR,
+                        precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
+                    )
+                    station_precip_table = _select_precip_columns(
+                        combined_precip_table, selected_station_ids
+                    )
+                pixel_precip_table = _select_precip_columns(
+                        combined_precip_table, selected_pixel_ids
+                    )
+
+                if not combined_precip_table.empty:
+                    combined_precip_table.to_csv(
+                        COMBINED_PRECIPITATION_OUTPUT, index=False
+                    )
+                    print(
+                        "Tabella precipitazioni combinata salvata in "
+                        f"{COMBINED_PRECIPITATION_OUTPUT.resolve()}"
+                    )
+                    
+                if selected_station_ids:
+                    if not station_precip_table.empty:
+                        station_precip_table.to_csv(
+                            STATION_PRECIPITATION_OUTPUT, index=False
+                        )
+                        print(
+                            "Tabella precipitazioni media catchment stazioni salvata in "
+                            f"{STATION_PRECIPITATION_OUTPUT.resolve()}"
+                        )
+                    else:
+                        print(
+                            "Nessuna serie di precipitazione calcolata per i catchment stazioni."
+                        )
+
+                if selected_pixel_ids:
+                    if not pixel_precip_table.empty:
+                        pixel_precip_table.to_csv(
+                            PIXEL_PRECIPITATION_OUTPUT, index=False
+                        )
+                        print(
+                            "Tabella precipitazioni media catchment pixel salvata in "
+                            f"{PIXEL_PRECIPITATION_OUTPUT.resolve()}"
+                        )
+                    else:
+                        print(
+                            "Nessuna serie di precipitazione calcolata per i catchment pixel."
+                        )
+            except Exception as exc:
+                print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
     else:
         print(
-            "Avvio calcolo serie di precipitazione media per catchment tramite kriging "
-            f"({len(selected_ids)} catchment)."
+            "Kriging disabilitato; verranno usate le serie già estratte "
+            "per il Model e i plot successivi."
         )
+
+    if not RUN_KRIGING and USE_EXISTING_PRECIP_TABLES:
+        combined_precip_table, station_precip_table, pixel_precip_table = (
+            _load_existing_precip_tables()
+        )
+        if selected_station_ids:
+            station_precip_table = _select_precip_columns(
+                station_precip_table, selected_station_ids
+            )
+        if selected_pixel_ids:
+            pixel_precip_table = _select_precip_columns(
+                pixel_precip_table, selected_pixel_ids
+            )
+        if selected_ids:
+            combined_precip_table = _select_precip_columns(
+                combined_precip_table, selected_ids
+            )
+
+    model_input_path = None
+    if not combined_precip_table.empty:
+        model_input_path = COMBINED_PRECIPITATION_OUTPUT
+        if not RUN_KRIGING:
+            combined_precip_table.to_csv(COMBINED_PRECIPITATION_OUTPUT, index=False)
+    elif not RUN_KRIGING:
+        print("Serie di precipitazione combinate mancanti: Model non eseguito.")
+
+    if model_input_path:
         try:
-            station_precip_table = pd.DataFrame()
-            pixel_precip_table = pd.DataFrame()
-            
-            combined_precip_table = pd.DataFrame()
-
-            def _select_precip_columns(source_df, ids):
-                if source_df.empty or not ids:
-                    return pd.DataFrame()
-                available_ids = [cid for cid in ids if cid in source_df.columns]
-                if not available_ids:
-                    return pd.DataFrame()
-                return source_df[["date"] + available_ids].copy()
-
-            combined_ids = []
-            combined_masks = []
-
-            if selected_station_ids:
-                combined_ids.extend(selected_station_ids)
-                combined_masks.extend(selected_station_masks)
-            if selected_pixel_ids:
-                combined_ids.extend(selected_pixel_ids)
-                combined_masks.extend(selected_pixel_masks)
-
-            if combined_ids:
-                combined_precip_table = compute_catchment_precipitation_series(
-                    catchment_masks=combined_masks,
-                    transform=grid.affine,
-                    catchment_ids=combined_ids,
-                    csv_dir=PRECIP_DATA_DIR,
-                    station_meta=PRECIP_STATION_META_PATH,
-                    dtm_path=Path(dem_path),
-                    dtm_crs=dtm_crs,
-                    start_date=PRECIP_DATE_START,
-                    end_date=PRECIP_DATE_END,
-                    buffer_distance=PRECIP_BUFFER_METERS,
-                    min_stations=PRECIP_MIN_STATIONS,
-                    max_stations=PRECIP_MAX_STATIONS,
-                    aggregation_factor=AGGREGATION_FACTOR,
-                    precipitation_threshold=KRIGING_PRECIPITATION_THRESHOLD,
-                )
-                
-                station_precip_table = _select_precip_columns(
-                    combined_precip_table, selected_station_ids
-                )
-                pixel_precip_table = _select_precip_columns(
-                    combined_precip_table, selected_pixel_ids
-                )
-
-            if selected_station_ids:
-                if not station_precip_table.empty:
-                    station_precip_table.to_csv(
-                        STATION_PRECIPITATION_OUTPUT, index=False
-                    )
-                    print(
-                        "Tabella precipitazioni media catchment stazioni salvata in "
-                        f"{STATION_PRECIPITATION_OUTPUT.resolve()}"
-                    )
+            output_file = run_model(
+                model_input_path,
+                output_dir=MODEL_OUTPUT_DIR,
+                precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
+            )
+            if output_file:
+                if isinstance(output_file, list):
+                    model_outputs = output_file
                 else:
-                    print(
-                        "Nessuna serie di precipitazione calcolata per i catchment stazioni."
-                    )
+                    model_outputs = [output_file]
 
-            if selected_pixel_ids:
-                if not pixel_precip_table.empty:
-                    pixel_precip_table.to_csv(
-                        PIXEL_PRECIPITATION_OUTPUT, index=False
-                    )
+            for model_output in model_outputs:
                     print(
-                        "Tabella precipitazioni media catchment pixel salvata in "
-                        f"{PIXEL_PRECIPITATION_OUTPUT.resolve()}"
+                        "Output Model salvato in "
+                        f"{model_output.resolve()}"
                     )
-                else:
-                    print(
-                        "Nessuna serie di precipitazione calcolata per i catchment pixel."
-                    )
-
-            if not station_precip_table.empty and not pixel_precip_table.empty:
-                try:
-                    output_file = run_model(
-                        STATION_PRECIPITATION_OUTPUT,
-                        PIXEL_PRECIPITATION_OUTPUT,
-                        output_dir=MODEL_OUTPUT_DIR,
-                        precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
-                    )
-                    if output_file:
-                        if isinstance(output_file, list):
-                            model_outputs = output_file
-                        else:
-                            model_outputs = [output_file]
-
-                        for model_output in model_outputs:
-                            print(
-                                "Output Model salvato in "
-                                f"{model_output.resolve()}"
-                            )
+                    try:
+                        filtered_output = model_output.with_name(
+                            f"{model_output.stem}_max_rho_1.csv"
+                        )
+                        run_max_rho_1(
+                            model_output,
+                            output_csv=filtered_output,
+                        )
+                        if PLOT_RHO_PIXELS:
+                            rho_csv_path = filtered_output
+                            if PROMPT_RHO_CSV:
+                                try:
+                                    user_rho_csv = input(
+                                        "Inserisci il file CSV con rho_1_max e rho_1_mean "
+                                        f"(invio per usare {filtered_output}): "
+                                    )
+                                except EOFError:
+                                    user_rho_csv = ""
+                                user_rho_csv = user_rho_csv.strip()
+                                if user_rho_csv:
+                                    rho_csv_path = Path(user_rho_csv)
                             try:
-                                filtered_output = model_output.with_name(
-                                    f"{model_output.stem}_max_rho_1.csv"
-                                )
-                                run_max_rho_1(
-                                    model_output,
-                                    output_csv=filtered_output,
-                                )
-                                if PLOT_RHO_PIXELS:
-                                    rho_csv_path = filtered_output
-                                    if PROMPT_RHO_CSV:
-                                        try:
-                                            user_rho_csv = input(
-                                                "Inserisci il file CSV con rho_1_max e rho_1_mean "
-                                                f"(invio per usare {filtered_output}): "
-                                            )
-                                        except EOFError:
-                                            user_rho_csv = ""
-                                        user_rho_csv = user_rho_csv.strip()
-                                        if user_rho_csv:
-                                            rho_csv_path = Path(user_rho_csv)
-                                    try:
-                                        plot_rho_pixels_on_network(
-                                            rho_csv_path,
-                                            PIXEL_TABLE_OUTPUT,
-                                            branches,
-                                            transform=grid.affine,
-                                        )
-                                    except Exception as exc:
-                                        print(
-                                            "Impossibile generare i plot rho sulla rete: "
-                                            f"{exc}"
-                                        )
+                                plot_rho_pixels_on_network(
+                                    rho_csv_path,
+                                    PIXEL_TABLE_OUTPUT,
+                                    branches,
+                                    transform=grid.affine,
+                                    )
+                                                                        
                             except Exception as exc:
                                 print(
-                                    "Errore durante il calcolo max_rho_1 "
-                                    f"per {model_output}: {exc}"
+                                    "Impossibile generare i plot rho sulla rete: "
+                                    f"{exc}"
                                 )
-                except Exception as exc:
-                    print(f"Errore durante l'esecuzione del Model: {exc}")
-            elif station_precip_table.empty:
-                    print("Serie di precipitazione stazioni mancanti: Model non eseguito.")
-            elif pixel_precip_table.empty:
-                    print("Serie di precipitazione pixel mancanti: Model non eseguito.")
+                    except Exception as exc:
+                        print(
+                            "Errore durante il calcolo max_rho_1 "
+                            f"per {model_output}: {exc}"
+                        )
         except Exception as exc:
-            print(f"Errore durante il calcolo delle serie di precipitazione: {exc}")
+            print(f"Errore durante l'esecuzione del Model: {exc}")
+    elif station_precip_table.empty:
+        print("Serie di precipitazione stazioni mancanti: Model non eseguito.")
+    elif pixel_precip_table.empty:
+        print("Serie di precipitazione pixel mancanti: Model non eseguito.")
+
+    if RUN_KRIGING and selected_ids:
             
         plot_dates = _build_plot_date_list(
             date_string=PLOT_PRECIPITATION_DATE,
