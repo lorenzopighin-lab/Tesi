@@ -18,7 +18,7 @@ import rasterio
 import seaborn as sns
 from pathlib import Path
 from pysheds.grid import Grid
-from rasterio.transform import rowcol
+from rasterio.transform import rowcol, xy
 from krig_arg import (
     compute_catchment_precipitation_series,
     krige_basin_precipitation_grid,
@@ -89,6 +89,9 @@ KRIGING_CATCHMENT_IDS = None
 PROMPT_PLOT_PRECIPITATION = True
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
 PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
+PLOT_RHO_PIXELS = True
+PROMPT_RHO_CSV = True
+
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -263,7 +266,137 @@ def plot_precipitation_map(
     cbar.ax.tick_params(labelsize=10)
     plt.tight_layout()
     plt.show()
+    
+def _find_column(data: pd.DataFrame, candidates: list[str]) -> str | None:
+    for name in candidates:
+        if name in data.columns:
+            return name
+    lowered = {col.lower(): col for col in data.columns}
+    for name in candidates:
+        lower_name = name.lower()
+        if lower_name in lowered:
+            return lowered[lower_name]
+    return None
 
+
+def _load_selected_pixel_coords(
+    pixel_table_path: Path,
+    *,
+    transform=None,
+) -> pd.DataFrame:
+    if not pixel_table_path.exists():
+        raise FileNotFoundError(f"Non trovo il file pixel: {pixel_table_path}")
+    pixel_table = pd.read_csv(pixel_table_path)
+    pixel_id_col = _find_column(pixel_table, ["pixel_id", "id"])
+    if not pixel_id_col:
+        raise KeyError("Colonna pixel_id mancante nella tabella pixel selezionati.")
+
+    x_col = _find_column(pixel_table, ["x"])
+    y_col = _find_column(pixel_table, ["y"])
+    row_col = _find_column(pixel_table, ["row"])
+    col_col = _find_column(pixel_table, ["col", "column"])
+
+    coords = pixel_table[[pixel_id_col]].copy()
+    if x_col and y_col:
+        coords["x"] = pd.to_numeric(pixel_table[x_col], errors="coerce")
+        coords["y"] = pd.to_numeric(pixel_table[y_col], errors="coerce")
+    elif row_col and col_col and transform is not None:
+        rows = pd.to_numeric(pixel_table[row_col], errors="coerce")
+        cols = pd.to_numeric(pixel_table[col_col], errors="coerce")
+        valid = rows.notna() & cols.notna()
+        coords["x"] = np.nan
+        coords["y"] = np.nan
+        if valid.any():
+            x_vals, y_vals = xy(transform, rows[valid].astype(int), cols[valid].astype(int))
+            coords.loc[valid, "x"] = np.asarray(x_vals, dtype=float)
+            coords.loc[valid, "y"] = np.asarray(y_vals, dtype=float)
+    else:
+        raise KeyError(
+            "Coordinate non disponibili: serve X/Y oppure Row/Col con trasformazione."
+        )
+
+    coords = coords.rename(columns={pixel_id_col: "pixel_id"})
+    coords["pixel_id"] = pd.to_numeric(coords["pixel_id"], errors="coerce")
+    coords = coords.dropna(subset=["pixel_id", "x", "y"])
+    coords["pixel_id"] = coords["pixel_id"].astype(int)
+    return coords
+
+
+def plot_rho_pixels_on_network(
+    rho_csv_path: Path,
+    pixel_table_path: Path,
+    branches_data,
+    *,
+    transform=None,
+):
+    rho_table = pd.read_csv(rho_csv_path)
+    pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
+    rho_max_col = _find_column(rho_table, ["rho_1_max"])
+    rho_mean_col = _find_column(rho_table, ["rho_1_mean"])
+
+    missing_cols = [
+        name
+        for name, col in (("pixel_id", pixel_id_col), ("rho_1_max", rho_max_col), ("rho_1_mean", rho_mean_col))
+        if col is None
+    ]
+    if missing_cols:
+        raise KeyError(
+            "Colonne mancanti nel CSV rho: " + ", ".join(missing_cols)
+        )
+
+    rho_values = rho_table[[pixel_id_col, rho_max_col, rho_mean_col]].copy()
+    rho_values = rho_values.rename(
+        columns={
+            pixel_id_col: "pixel_id",
+            rho_max_col: "rho_1_max",
+            rho_mean_col: "rho_1_mean",
+        }
+    )
+    rho_values["pixel_id"] = pd.to_numeric(rho_values["pixel_id"], errors="coerce")
+    rho_values["rho_1_max"] = pd.to_numeric(rho_values["rho_1_max"], errors="coerce")
+    rho_values["rho_1_mean"] = pd.to_numeric(rho_values["rho_1_mean"], errors="coerce")
+    rho_values = rho_values.dropna(subset=["pixel_id"])
+    rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
+
+    coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
+    merged = coords.merge(rho_values, on="pixel_id", how="inner")
+    if merged.empty:
+        print("Nessun pixel trovato per il plotting di rho.")
+        return
+
+    plot_specs = [
+        ("rho_1_max", "Rho 1 Max"),
+        ("rho_1_mean", "Rho 1 Mean"),
+    ]
+
+    for column, label in plot_specs:
+        fig, ax = plt.subplots(figsize=(8.5, 6.5))
+        plt.xlim(grid.bbox[0], grid.bbox[2])
+        plt.ylim(grid.bbox[1], grid.bbox[3])
+        ax.set_aspect("equal")
+
+        for branch in branches_data["features"]:
+            line = np.asarray(branch["geometry"]["coordinates"])
+            plt.plot(line[:, 0], line[:, 1], color="0.4", linewidth=0.8)
+
+        scatter = ax.scatter(
+            merged["x"],
+            merged["y"],
+            s=30,
+            c=merged[column],
+            cmap="viridis",
+            edgecolors="k",
+            linewidths=0.3,
+            zorder=6,
+        )
+        cbar = plt.colorbar(scatter, ax=ax, label=label)
+        cbar.ax.tick_params(labelsize=9)
+        ax.set_title(
+            f"{label} su rete canali (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+            size=13,
+        )
+        plt.show()
+    
 def _load_station_points(meta_path: Path):
     if not meta_path:
         return [], None, None
@@ -2248,6 +2381,31 @@ else:
                                     model_output,
                                     output_csv=filtered_output,
                                 )
+                                if PLOT_RHO_PIXELS:
+                                    rho_csv_path = filtered_output
+                                    if PROMPT_RHO_CSV:
+                                        try:
+                                            user_rho_csv = input(
+                                                "Inserisci il file CSV con rho_1_max e rho_1_mean "
+                                                f"(invio per usare {filtered_output}): "
+                                            )
+                                        except EOFError:
+                                            user_rho_csv = ""
+                                        user_rho_csv = user_rho_csv.strip()
+                                        if user_rho_csv:
+                                            rho_csv_path = Path(user_rho_csv)
+                                    try:
+                                        plot_rho_pixels_on_network(
+                                            rho_csv_path,
+                                            PIXEL_TABLE_OUTPUT,
+                                            branches,
+                                            transform=grid.affine,
+                                        )
+                                    except Exception as exc:
+                                        print(
+                                            "Impossibile generare i plot rho sulla rete: "
+                                            f"{exc}"
+                                        )
                             except Exception as exc:
                                 print(
                                     "Errore durante il calcolo max_rho_1 "
