@@ -83,7 +83,7 @@ MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
+RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
 USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
@@ -96,6 +96,9 @@ PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul ba
 PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 PLOT_RHO_PIXELS = True
 PROMPT_RHO_CSV = True
+PROMPT_RHO_COLOR_SCALE = False
+RHO_COLOR_SCALE_MIN = 0.7
+RHO_COLOR_SCALE_MAX = 1.0
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -386,6 +389,30 @@ def plot_rho_pixels_on_network(
         ("rho_1_mean", "Rho 1 Mean"),
     ]
 
+    vmin = RHO_COLOR_SCALE_MIN
+    vmax = RHO_COLOR_SCALE_MAX
+    if PROMPT_RHO_COLOR_SCALE:
+        try:
+            user_limits = input(
+                "Inserisci i limiti min,max per la scala colori rho "
+                "(invio per automatico): "
+            )
+        except EOFError:
+            user_limits = ""
+        user_limits = user_limits.strip()
+        if user_limits:
+            tokens = [part for part in user_limits.replace(";", ",").replace(" ", ",").split(",") if part]
+            if len(tokens) >= 2:
+                try:
+                    vmin = float(tokens[0])
+                    vmax = float(tokens[1])
+                except ValueError:
+                    print("Valori scala colori non validi: uso scala automatica.")
+                    vmin = None
+                    vmax = None
+            else:
+                print("Inserire due valori (min,max) per la scala colori.")
+
     for column, label in plot_specs:
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
         plt.xlim(grid.bbox[0], grid.bbox[2])
@@ -402,10 +429,25 @@ def plot_rho_pixels_on_network(
             s=30,
             c=merged[column],
             cmap="viridis",
+            vmin=vmin,
+            vmax=vmax,
             edgecolors="k",
             linewidths=0.3,
             zorder=6,
         )
+        if station_lons is not None and station_lats is not None and len(station_lons):
+           ax.scatter(
+               station_lons,
+               station_lats,
+               s=40,
+               c="red",
+               marker="^",
+               edgecolors="k",
+               linewidths=0.4,
+               zorder=7,
+               label="Stazioni",
+           )
+           ax.legend(loc="upper right", fontsize=9, frameon=True)
         cbar = plt.colorbar(scatter, ax=ax, label=label)
         cbar.ax.tick_params(labelsize=9)
         ax.set_title(
