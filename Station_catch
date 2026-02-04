@@ -32,7 +32,7 @@ from max_rho_1 import run as run_max_rho_1
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
 POUR_POINT = array.array('f', [9.596098,	47.627986])
 SNAP_ACCUMULATION_THRESHOLD = 8000
-BRANCH_ACCUMULATION_THRESHOLD = 8000
+BRANCH_ACCUMULATION_THRESHOLD = 3000
 MIN_ACCUMULATION_KM2 = 1
 
 
@@ -83,7 +83,7 @@ MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
+RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
 USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
@@ -383,6 +383,22 @@ def plot_rho_pixels_on_network(
     if merged.empty:
         print("Nessun pixel trovato per il plotting di rho.")
         return
+    
+    station_lons = None
+    station_lats = None
+    if station_metadata and station_ids_on_network:
+        filtered_stations = [
+            rec
+            for rec in station_metadata
+            if str(rec.get("station_id") or "").strip() in station_ids_on_network
+        ]
+        if filtered_stations:
+            station_lons = np.asarray(
+                [rec.get("lon") for rec in filtered_stations], dtype=float
+            )
+            station_lats = np.asarray(
+                [rec.get("lat") for rec in filtered_stations], dtype=float
+            )
 
     plot_specs = [
         ("rho_1_max", "Rho 1 Max"),
