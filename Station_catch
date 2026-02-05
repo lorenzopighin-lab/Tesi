@@ -32,7 +32,7 @@ from max_rho_1 import run as run_max_rho_1
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
 POUR_POINT = array.array('f', [9.596098,	47.627986])
 SNAP_ACCUMULATION_THRESHOLD = 8000
-BRANCH_ACCUMULATION_THRESHOLD = 3000
+BRANCH_ACCUMULATION_THRESHOLD = 4000
 MIN_ACCUMULATION_KM2 = 1
 
 
