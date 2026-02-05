@@ -83,15 +83,15 @@ MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
+RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
 USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
 EXISTING_PIXEL_PRECIP_TABLE = PIXEL_PRECIPITATION_OUTPUT
-PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da interpolare
+PROMPT_KRIGING_CATCHMENTS = False  # Chiedi da input gli ID dei catchment da interpolare
 # Esempio: ["catchment_001", "catchment_010"] oppure stringa "catchment_001,catchment_010"
 KRIGING_CATCHMENT_IDS = None
-PROMPT_PLOT_PRECIPITATION = True
+PROMPT_PLOT_PRECIPITATION = False
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
 PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 PLOT_RHO_PIXELS = True
@@ -335,6 +335,8 @@ def plot_rho_pixels_on_network(
     branches_data,
     *,
     transform=None,
+    dem_background=None,
+    dem_extent=None,
 ):
     def _normalize_pixel_id(value) -> int | None:
         if value is None or (isinstance(value, float) and np.isnan(value)):
@@ -430,40 +432,53 @@ def plot_rho_pixels_on_network(
                 print("Inserire due valori (min,max) per la scala colori.")
 
     for column, label in plot_specs:
+        def _plot_network(ax, *, with_dem: bool = False):
+            if with_dem and dem_background is not None and dem_extent is not None:
+                ax.imshow(
+                    dem_background,
+                    extent=dem_extent,
+                    cmap="terrain",
+                    origin="upper",
+                    alpha=0.85,
+                    zorder=1,
+                )
+
+            for branch in branches_data["features"]:
+                line = np.asarray(branch["geometry"]["coordinates"])
+                ax.plot(line[:, 0], line[:, 1], color="0.4", linewidth=0.8, zorder=3)
+
+            scatter_plot = ax.scatter(
+                merged["x"],
+                merged["y"],
+                s=30,
+                c=merged[column],
+                cmap="viridis",
+                vmin=vmin,
+                vmax=vmax,
+                edgecolors="k",
+                linewidths=0.3,
+                zorder=6,
+            )
+
+            if station_lons is not None and station_lats is not None and len(station_lons):
+               ax.scatter(
+                   station_lons,
+                   station_lats,
+                   s=40,
+                   c="red",
+                   marker="^",
+                   edgecolors="k",
+                   linewidths=0.4,
+                   zorder=7,
+                   label="Stazioni",
+               )
+               ax.legend(loc="upper right", fontsize=9, frameon=True)
+            return scatter_plot
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
-        plt.xlim(grid.bbox[0], grid.bbox[2])
-        plt.ylim(grid.bbox[1], grid.bbox[3])
+        ax.set_xlim(grid.bbox[0], grid.bbox[2])
+        ax.set_ylim(grid.bbox[1], grid.bbox[3])
         ax.set_aspect("equal")
-
-        for branch in branches_data["features"]:
-            line = np.asarray(branch["geometry"]["coordinates"])
-            plt.plot(line[:, 0], line[:, 1], color="0.4", linewidth=0.8)
-
-        scatter = ax.scatter(
-            merged["x"],
-            merged["y"],
-            s=30,
-            c=merged[column],
-            cmap="viridis",
-            vmin=vmin,
-            vmax=vmax,
-            edgecolors="k",
-            linewidths=0.3,
-            zorder=6,
-        )
-        if station_lons is not None and station_lats is not None and len(station_lons):
-           ax.scatter(
-               station_lons,
-               station_lats,
-               s=40,
-               c="red",
-               marker="^",
-               edgecolors="k",
-               linewidths=0.4,
-               zorder=7,
-               label="Stazioni",
-           )
-           ax.legend(loc="upper right", fontsize=9, frameon=True)
+        scatter = _plot_network(ax, with_dem=False)   
         cbar = plt.colorbar(scatter, ax=ax, label=label)
         cbar.ax.tick_params(labelsize=9)
         ax.set_title(
@@ -471,6 +486,27 @@ def plot_rho_pixels_on_network(
             size=13,
         )
         plt.show()
+        
+        if dem_background is not None and dem_extent is not None:
+            fig, ax = plt.subplots(figsize=(8.5, 6.5))
+            ax.set_xlim(grid.extent[0], grid.extent[1])
+            ax.set_ylim(grid.extent[2], grid.extent[3])
+            ax.set_aspect("equal")
+            scatter = _plot_network(ax, with_dem=True)
+            cbar = plt.colorbar(scatter, ax=ax, label=label)
+            cbar.ax.tick_params(labelsize=9)
+            plt.colorbar(
+                ax.images[0],
+                ax=ax,
+                label="Elevation",
+                fraction=0.046,
+                pad=0.08,
+            )
+            ax.set_title(
+                f"{label} su rete canali con DEM intero (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+                size=13,
+            )
+            plt.show()
     
 def _load_station_points(meta_path: Path):
     if not meta_path:
@@ -2543,8 +2579,10 @@ else:
                                     PIXEL_TABLE_OUTPUT,
                                     branches,
                                     transform=grid.affine,
+                                    dem_background=inflated_dem_masked,
+                                    dem_extent=grid.extent,
                                     )
-                                                                        
+                                
                             except Exception as exc:
                                 print(
                                     "Impossibile generare i plot rho sulla rete: "
