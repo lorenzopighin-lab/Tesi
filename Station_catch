@@ -496,10 +496,12 @@ def plot_rho_pixels_on_network(
             scatter = _plot_network(ax, with_dem=True)
             divider = make_axes_locatable(ax)
             rho_cax = divider.append_axes("right", size="4%", pad=0.10)
-            elevation_cax = divider.append_axes("right", size="4%", pad=0.48)
+            elevation_cax = divider.append_axes("right", size="4%", pad=0.70)
 
             cbar = fig.colorbar(scatter, cax=rho_cax)
             cbar.set_label(label)
+            cbar.ax.yaxis.set_label_position("left")
+            cbar.ax.yaxis.set_ticks_position("left")
             cbar.ax.tick_params(labelsize=9)
             dem_cbar = fig.colorbar(ax.images[0], cax=elevation_cax)
             dem_cbar.set_label("Elevation")
