@@ -12,6 +12,7 @@ import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import pandas as pd
 import rasterio
@@ -403,8 +404,8 @@ def plot_rho_pixels_on_network(
             )
 
     plot_specs = [
-        ("rho_1_max", "Rho 1 Max"),
-        ("rho_1_mean", "Rho 1 Mean"),
+        ("rho_1_max", "Rho_max"),
+        ("rho_1_mean", "Rho_mean"),
     ]
 
     vmin = RHO_COLOR_SCALE_MIN
@@ -493,17 +494,28 @@ def plot_rho_pixels_on_network(
             ax.set_ylim(grid.extent[2], grid.extent[3])
             ax.set_aspect("equal")
             scatter = _plot_network(ax, with_dem=True)
-            cbar = plt.colorbar(scatter, ax=ax, label=label)
+            divider = make_axes_locatable(ax)
+            rho_cax = divider.append_axes("right", size="4%", pad=0.10)
+            elevation_cax = divider.append_axes("right", size="4%", pad=0.48)
+
+            cbar = fig.colorbar(scatter, cax=rho_cax)
+            cbar.set_label(label)
             cbar.ax.tick_params(labelsize=9)
-            plt.colorbar(
-                ax.images[0],
-                ax=ax,
-                label="Elevation",
-                fraction=0.046,
-                pad=0.08,
-            )
+            dem_cbar = fig.colorbar(ax.images[0], cax=elevation_cax)
+            dem_cbar.set_label("Elevation")
+            dem_cbar.ax.tick_params(labelsize=9)
+
+            if column == "rho_1_mean":
+                dem_title = (
+                    f"Rho_mean su DEM (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                )
+            else:
+                dem_title = (
+                    f"Rho_max su DEM (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                )
+            
             ax.set_title(
-                f"{label} su rete canali con DEM intero (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+                dem_title,
                 size=13,
             )
             plt.show()
