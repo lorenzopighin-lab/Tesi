@@ -1,0 +1,165 @@
+# -*- coding: utf-8 -*-
+"""Calcola rho di Pearson per tutte le coppie di stazioni in un CSV.
+
+Il CSV deve avere:
+- prima colonna: data/tempo
+- colonne successive: serie di portata delle stazioni
+
+Uso esempio:
+python pearson_rho_stazioni.py \
+  --input-csv "/percorso/al/file_input.csv" \
+  --output-csv "/percorso/al/file_output.csv"
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+from itertools import combinations
+from pathlib import Path
+
+
+DEFAULT_INPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/argenflow.csv")
+DEFAULT_OUTPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/rho_stazioni.csv")
+
+OUTPUT_PAIR_COLUMN = "stazioni"
+OUTPUT_RHO_COLUMN = "rho"
+
+
+def parse_float(value: str) -> float | None:
+    text = value.strip()
+    if text == "":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def pearson_rho(values_a: list[float | None], values_b: list[float | None]) -> float:
+    paired: list[tuple[float, float]] = [
+        (a, b)
+        for a, b in zip(values_a, values_b)
+        if a is not None and b is not None
+    ]
+    if not paired:
+        return float("nan")
+
+    x_values = [x for x, _ in paired]
+    y_values = [y for _, y in paired]
+
+    x_mean = sum(x_values) / len(x_values)
+    y_mean = sum(y_values) / len(y_values)
+
+    num = sum((x - x_mean) * (y - y_mean) for x, y in paired)
+    den_a = sum((x - x_mean) ** 2 for x in x_values)
+    den_b = sum((y - y_mean) ** 2 for y in y_values)
+    den = math.sqrt(den_a * den_b)
+
+    if den == 0:
+        return float("nan")
+    return num / den
+
+
+def read_station_series(input_csv: str | Path) -> tuple[list[str], dict[str, list[float | None]]]:
+    input_path = Path(input_csv)
+    if not input_path.exists():
+        raise FileNotFoundError(f"File input non trovato: {input_path}")
+
+    with input_path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        try:
+            header = next(reader)
+        except StopIteration as exc:
+            raise ValueError("Il CSV di input è vuoto.") from exc
+
+        if len(header) < 3:
+            raise ValueError(
+                "Il CSV deve contenere almeno 3 colonne: data + almeno 2 stazioni."
+            )
+
+        station_names = header[1:]
+        station_series: dict[str, list[float | None]] = {name: [] for name in station_names}
+
+        for row in reader:
+            padded_row = row + [""] * (len(header) - len(row))
+            for idx, station_name in enumerate(station_names, start=1):
+                station_series[station_name].append(parse_float(padded_row[idx]))
+
+    return station_names, station_series
+
+
+def compute_station_pair_rho(station_names: list[str], station_series: dict[str, list[float | None]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+
+    for station_a, station_b in combinations(station_names, 2):
+        rho = pearson_rho(station_series[station_a], station_series[station_b])
+        rho_text = "nan" if math.isnan(rho) else f"{rho:.12g}"
+        rows.append(
+            {
+                OUTPUT_PAIR_COLUMN: f"{station_a} - {station_b}",
+                OUTPUT_RHO_COLUMN: rho_text,
+            }
+        )
+
+    return rows
+
+
+def write_output(output_csv: str | Path, rows: list[dict[str, str]]) -> Path:
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[OUTPUT_PAIR_COLUMN, OUTPUT_RHO_COLUMN])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return output_path
+
+
+def run(input_csv: str | Path, output_csv: str | Path) -> Path:
+    station_names, station_series = read_station_series(input_csv)
+    rows = compute_station_pair_rho(station_names, station_series)
+    output_path = write_output(output_csv, rows)
+
+    for row in rows:
+        print(f"{row[OUTPUT_PAIR_COLUMN]} -> rho={row[OUTPUT_RHO_COLUMN]}")
+    print(f"\nRisultato salvato in: {output_path}")
+
+    return output_path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Calcola rho di Pearson tra tutte le coppie di colonne stazione "
+            "in un CSV (prima colonna = data)."
+        )
+    )
+    parser.add_argument(
+        "--input-csv",
+        default=str(DEFAULT_INPUT_CSV),
+        help=(
+            "Percorso del CSV di input. "
+            f"Default (da sostituire): {DEFAULT_INPUT_CSV}"
+        ),
+    )
+    parser.add_argument(
+        "--output-csv",
+        default=str(DEFAULT_OUTPUT_CSV),
+        help=(
+            "Percorso del CSV di output. "
+            f"Default (da sostituire): {DEFAULT_OUTPUT_CSV}"
+        ),
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    run(input_csv=args.input_csv, output_csv=args.output_csv)
+
+
+if __name__ == "__main__":
+    main()
