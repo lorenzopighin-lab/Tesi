@@ -77,9 +77,9 @@ PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
-STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_station_precipitation_table.csv")
-PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_pixel_precipitazion_table.csv")
-COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_catchment_precipitation_table.csv")
+STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_station_precipitation_table.csv")
+PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitazion_table.csv")
+COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_catchment_precipitation_table.csv")
 MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing")
 
 
@@ -2295,7 +2295,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_377"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_301"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2312,7 +2312,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_377"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_301"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
