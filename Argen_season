@@ -72,16 +72,19 @@ PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_
 PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE111140.csv")
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
+# Periodo stagionale (MM-DD) da applicare ogni anno della simulazione.
+SEASONAL_PERIOD_START_MMDD = "06-01"
+SEASONAL_PERIOD_END_MMDD = "08-31"
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
-STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/year/argen_station_precipitation_table.csv")
-PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/year/argen_pixel_precipitazion_table.csv")
-COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/year/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing")
+STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_station_precipitation_table.csv")
+PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitazion_table.csv")
+COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_catchment_precipitation_table.csv")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/summer")
 STATION_RHO_OUTPUT_DIR = MODEL_OUTPUT_DIR / "station_rho"
 
 # --- Opzioni Kriging ---
@@ -2373,6 +2376,71 @@ def _select_precip_columns(source_df, ids):
         return pd.DataFrame()
     return source_df[["date"] + available_ids].copy()
 
+def _parse_mmdd(mmdd: str) -> tuple[int, int] | None:
+    try:
+        dt = pd.to_datetime(f"2001-{str(mmdd).strip()}", format="%Y-%m-%d", errors="raise")
+        return int(dt.month), int(dt.day)
+    except Exception:
+        return None
+
+
+def _build_seasonal_mask(dates: pd.Series, start_mmdd: str, end_mmdd: str) -> pd.Series:
+    parsed_dates = pd.to_datetime(dates, errors="coerce")
+    start_parts = _parse_mmdd(start_mmdd)
+    end_parts = _parse_mmdd(end_mmdd)
+
+    if start_parts is None or end_parts is None:
+        raise ValueError(
+            "Periodo stagionale non valido: usa formato MM-DD "
+            f"(ricevuti start='{start_mmdd}', end='{end_mmdd}')."
+        )
+
+    start_month, start_day = start_parts
+    end_month, end_day = end_parts
+
+    start_code = start_month * 100 + start_day
+    end_code = end_month * 100 + end_day
+    current_code = parsed_dates.dt.month * 100 + parsed_dates.dt.day
+
+    valid_dates = parsed_dates.notna()
+    if start_code <= end_code:
+        in_window = (current_code >= start_code) & (current_code <= end_code)
+    else:
+        in_window = (current_code >= start_code) | (current_code <= end_code)
+    return valid_dates & in_window
+
+
+def _apply_seasonal_period(
+    source_df: pd.DataFrame,
+    start_mmdd: str,
+    end_mmdd: str,
+    *,
+    label: str,
+) -> pd.DataFrame:
+    if source_df.empty:
+        return source_df
+    if "date" not in source_df.columns:
+        print(f"Tabella {label}: colonna 'date' assente, filtro stagionale non applicato.")
+        return source_df
+
+    mask = _build_seasonal_mask(source_df["date"], start_mmdd, end_mmdd)
+    filtered = source_df.loc[mask].copy()
+
+    total_rows = len(source_df)
+    kept_rows = len(filtered)
+    if kept_rows == 0:
+        print(
+            f"Tabella {label}: nessuna riga nel periodo stagionale "
+            f"{start_mmdd} -> {end_mmdd}."
+        )
+    else:
+        print(
+            f"Tabella {label}: filtro stagionale {start_mmdd} -> {end_mmdd} "
+            f"applicato ({kept_rows}/{total_rows} righe mantenute)."
+        )
+
+    return filtered
+
 
 if not catchments:
     print("Nessun catchment disponibile per il calcolo delle precipitazioni medie.")
@@ -2541,6 +2609,28 @@ else:
             combined_precip_table = _select_precip_columns(
                 combined_precip_table, selected_ids
             )
+    
+    if not combined_precip_table.empty:
+        combined_precip_table = _apply_seasonal_period(
+            combined_precip_table,
+            SEASONAL_PERIOD_START_MMDD,
+            SEASONAL_PERIOD_END_MMDD,
+            label="combinata",
+        )
+    if not station_precip_table.empty:
+        station_precip_table = _apply_seasonal_period(
+            station_precip_table,
+            SEASONAL_PERIOD_START_MMDD,
+            SEASONAL_PERIOD_END_MMDD,
+            label="stazioni",
+        )
+    if not pixel_precip_table.empty:
+        pixel_precip_table = _apply_seasonal_period(
+            pixel_precip_table,
+            SEASONAL_PERIOD_START_MMDD,
+            SEASONAL_PERIOD_END_MMDD,
+            label="pixel",
+        )
 
     if not RUN_KRIGING and not combined_precip_table.empty:
         combined_precip_table.to_csv(COMBINED_PRECIPITATION_OUTPUT, index=False)
