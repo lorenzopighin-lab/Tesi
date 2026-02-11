@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Conta quante stazioni hanno dati di precipitazione (RS) per ogni anno.
+
+Ogni file CSV nella cartella rappresenta una stazione. Il separatore è ';'.
+Si usano le colonne:
+- MESS_DATUM (YYYYMMDD)
+- RS (valore numerico giornaliero)
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+from collections import defaultdict
+from pathlib import Path
+from typing import Iterable
+
+
+def _parse_year(date_value: str) -> int | None:
+    date_value = date_value.strip()
+    if len(date_value) != 8 or not date_value.isdigit():
+        return None
+    return int(date_value[:4])
+
+
+def _is_valid_number(value: str) -> bool:
+    value = value.strip()
+    if value == "":
+        return False
+    try:
+        number = float(value)
+    except ValueError:
+        return False
+    return math.isfinite(number)
+
+
+def _iter_csv_files(csv_dir: Path) -> Iterable[Path]:
+    return sorted(csv_dir.glob("*.csv"))
+
+
+def count_stations_by_year(csv_dir: Path, start_year: int, end_year: int) -> dict[int, int]:
+    counts: dict[int, int] = defaultdict(int)
+
+    for csv_path in _iter_csv_files(csv_dir):
+        years_with_data: set[int] = set()
+        with csv_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter=";")
+            if "MESS_DATUM" not in reader.fieldnames or "RS" not in reader.fieldnames:
+                raise ValueError(
+                    f"File {csv_path} non contiene le colonne richieste: MESS_DATUM, RS"
+                )
+            for row in reader:
+                year = _parse_year(row.get("MESS_DATUM", ""))
+                if year is None or year < start_year or year > end_year:
+                    continue
+                if not _is_valid_number(row.get("RS", "")):
+                    continue
+                years_with_data.add(year)
+
+        for year in years_with_data:
+            counts[year] += 1
+
+    return dict(counts)
+
+
+def _format_table(counts: dict[int, int], start_year: int, end_year: int) -> str:
+    lines = ["Anno;Stazioni_con_dati_RS"]
+    for year in range(start_year, end_year + 1):
+        lines.append(f"{year};{counts.get(year, 0)}")
+    return "\n".join(lines)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Conta quante stazioni hanno valori RS per ogni anno nel periodo indicato."
+        )
+    )
+    parser.add_argument(
+        "csv_dir",
+        type=Path,
+        help="Cartella contenente i CSV delle stazioni.",
+    )
+    parser.add_argument(
+        "--start",
+        type=int,
+        default=2000,
+        help="Anno di inizio (default: 2000).",
+    )
+    parser.add_argument(
+        "--end",
+        type=int,
+        default=2020,
+        help="Anno di fine (default: 2020).",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Se fornito, salva il risultato in questo file CSV.",
+    )
+
+    args = parser.parse_args()
+    csv_dir: Path = args.csv_dir
+    if not csv_dir.exists() or not csv_dir.is_dir():
+        raise SystemExit(f"Cartella non valida: {csv_dir}")
+
+    counts = count_stations_by_year(csv_dir, args.start, args.end)
+    table = _format_table(counts, args.start, args.end)
+
+    if args.output:
+        args.output.write_text(table, encoding="utf-8")
+        print(f"Risultato salvato in: {args.output}")
+    else:
+        print(table)
+
+
+if __name__ == "__main__":
+    main()
