@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Conta quante stazioni hanno dati di precipitazione (RS) per ogni anno.
 
-Ogni file CSV nella cartella rappresenta una stazione. Il separatore è ';'.
+Ogni file TXT nella cartella rappresenta una stazione. Il separatore è ';'.
 Si usano le colonne:
 - MESS_DATUM (YYYYMMDD)
 - RS (valore numerico giornaliero)
@@ -16,11 +16,24 @@ from pathlib import Path
 from typing import Iterable
 
 
+# Impostazioni rapide (modificale se vuoi lanciare lo script senza parametri)
+DEFAULT_TXT_DIR = Path(".")
+DEFAULT_START_DATE = "20000101"
+DEFAULT_END_DATE = "20201231"
+
+
 def _parse_year(date_value: str) -> int | None:
     date_value = date_value.strip()
     if len(date_value) != 8 or not date_value.isdigit():
         return None
     return int(date_value[:4])
+
+
+def _parse_date_int(date_value: str) -> int | None:
+    date_value = date_value.strip()
+    if len(date_value) != 8 or not date_value.isdigit():
+        return None
+    return int(date_value)
 
 
 def _is_valid_number(value: str) -> bool:
@@ -34,26 +47,35 @@ def _is_valid_number(value: str) -> bool:
     return math.isfinite(number)
 
 
-def _iter_csv_files(csv_dir: Path) -> Iterable[Path]:
-    return sorted(csv_dir.glob("*.csv"))
+def _iter_txt_files(txt_dir: Path) -> Iterable[Path]:
+    return sorted(txt_dir.glob("*.txt"))
 
 
-def count_stations_by_year(csv_dir: Path, start_year: int, end_year: int) -> dict[int, int]:
+def count_stations_by_year(
+    txt_dir: Path,
+    start_date: int,
+    end_date: int,
+) -> dict[int, int]:
+    start_year = start_date // 10000
+    end_year = end_date // 10000
     counts: dict[int, int] = defaultdict(int)
 
-    for csv_path in _iter_csv_files(csv_dir):
+    for txt_path in _iter_txt_files(txt_dir):
         years_with_data: set[int] = set()
-        with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        with txt_path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle, delimiter=";")
             if "MESS_DATUM" not in reader.fieldnames or "RS" not in reader.fieldnames:
                 raise ValueError(
-                    f"File {csv_path} non contiene le colonne richieste: MESS_DATUM, RS"
+                    f"File {txt_path} non contiene le colonne richieste: MESS_DATUM, RS"
                 )
             for row in reader:
-                year = _parse_year(row.get("MESS_DATUM", ""))
-                if year is None or year < start_year or year > end_year:
+                date_int = _parse_date_int(row.get("MESS_DATUM", ""))
+                if date_int is None or date_int < start_date or date_int > end_date:
                     continue
                 if not _is_valid_number(row.get("RS", "")):
+                    continue
+                year = _parse_year(row.get("MESS_DATUM", ""))
+                if year is None:
                     continue
                 years_with_data.add(year)
 
@@ -77,36 +99,62 @@ def main() -> None:
         )
     )
     parser.add_argument(
-        "csv_dir",
+        "--dir",
+        "-d",
         type=Path,
-        help="Cartella contenente i CSV delle stazioni.",
+        default=DEFAULT_TXT_DIR,
+       help=(
+           "Cartella contenente i TXT delle stazioni "
+           f"(default: {DEFAULT_TXT_DIR})."
+       ),
     )
     parser.add_argument(
         "--start",
-        type=int,
-        default=2000,
-        help="Anno di inizio (default: 2000).",
+        "-s",
+        type=str,
+        default=DEFAULT_START_DATE,
+        help=(
+            "Data di inizio nel formato YYYYMMDD "
+            f"(default: {DEFAULT_START_DATE})."
+        ),
     )
     parser.add_argument(
         "--end",
-        type=int,
-        default=2020,
-        help="Anno di fine (default: 2020).",
+        "-e",
+        type=str,
+        default=DEFAULT_END_DATE,
+        help=(
+            "Data di fine nel formato YYYYMMDD "
+            f"(default: {DEFAULT_END_DATE})."
+        ),
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Se fornito, salva il risultato in questo file CSV.",
+        help="Se fornito, salva il risultato in questo file di testo.",
     )
 
     args = parser.parse_args()
-    csv_dir: Path = args.csv_dir
-    if not csv_dir.exists() or not csv_dir.is_dir():
-        raise SystemExit(f"Cartella non valida: {csv_dir}")
+    txt_dir: Path = args.dir
+    if not txt_dir.exists() or not txt_dir.is_dir():
+        raise SystemExit(f"Cartella non valida: {txt_dir}")
 
-    counts = count_stations_by_year(csv_dir, args.start, args.end)
-    table = _format_table(counts, args.start, args.end)
+    start_date = _parse_date_int(args.start)
+    if start_date is None:
+        raise SystemExit("Data di inizio non valida. Usa il formato YYYYMMDD.")
+
+    end_date = _parse_date_int(args.end)
+    if end_date is None:
+        raise SystemExit("Data di fine non valida. Usa il formato YYYYMMDD.")
+
+    if start_date > end_date:
+        raise SystemExit("La data di inizio deve essere <= della data di fine.")
+
+    start_year = start_date // 10000
+    end_year = end_date // 10000
+    counts = count_stations_by_year(txt_dir, start_date, end_date)
+    table = _format_table(counts, start_year, end_year)
 
     if args.output:
         args.output.write_text(table, encoding="utf-8")
