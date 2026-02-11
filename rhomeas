@@ -31,6 +31,8 @@ from pathlib import Path
 
 DEFAULT_INPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/argenflow.csv")
 DEFAULT_OUTPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/rho_stazioni.csv")
+DEFAULT_PERIOD_START = "06-01"
+DEFAULT_PERIOD_END = "08-31"
 
 OUTPUT_PAIR_COLUMN = "stazioni"
 OUTPUT_RHO_COLUMN = "rho"
@@ -261,11 +263,27 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
+        "--period-start",
+        default=DEFAULT_PERIOD_START,
+        help=(
+            "Inizio periodo da analizzare. Usa YYYY-MM-DD per intervallo assoluto "
+            "oppure MM-DD per periodo stagionale ricorrente."
+        ),
+    )
+    parser.add_argument(
+        "--period-end",
+        default=DEFAULT_PERIOD_END,
+        help=(
+            "Fine periodo da analizzare. Usa YYYY-MM-DD per intervallo assoluto "
+            "oppure MM-DD per periodo stagionale ricorrente."
+        ),
+    )
+    parser.add_argument(
         "--input-csv",
         default=str(DEFAULT_INPUT_CSV),
         help=(
             "Percorso del CSV di input. "
-            f"Default (da sostituire): {DEFAULT_INPUT_CSV}"
+           f"Default (da sostituire): {DEFAULT_INPUT_CSV}"
         ),
     )
     parser.add_argument(
@@ -274,22 +292,6 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Percorso del CSV di output. "
             f"Default (da sostituire): {DEFAULT_OUTPUT_CSV}"
-        ),
-    )
-    parser.add_argument(
-        "--period-start",
-        default=None,
-        help=(
-            "Inizio periodo da analizzare. Usa YYYY-MM-DD per intervallo assoluto "
-            "oppure MM-DD per periodo stagionale ricorrente."
-        ),
-    )
-    parser.add_argument(
-        "--period-end",
-        default=None,
-        help=(
-            "Fine periodo da analizzare. Usa YYYY-MM-DD per intervallo assoluto "
-            "oppure MM-DD per periodo stagionale ricorrente."
         ),
     )
     return parser.parse_args()
