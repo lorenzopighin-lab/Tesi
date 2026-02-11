@@ -5,10 +5,16 @@ Il CSV deve avere:
 - prima colonna: data/tempo
 - colonne successive: serie di portata delle stazioni
 
+Supporta un filtro temporale opzionale:
+- intervallo assoluto (YYYY-MM-DD ... YYYY-MM-DD)
+- periodo stagionale ricorrente (MM-DD ... MM-DD, applicato a tutti gli anni)
+
 Uso esempio:
 python pearson_rho_stazioni.py \
   --input-csv "/percorso/al/file_input.csv" \
   --output-csv "/percorso/al/file_output.csv"
+  --period-start 06-01 \
+  --period-end 08-31
 """
 
 from __future__ import annotations
@@ -16,6 +22,9 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import re
+from dataclasses import dataclass
+from datetime import date, datetime
 from itertools import combinations
 from pathlib import Path
 
@@ -26,6 +35,32 @@ DEFAULT_OUTPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/rho_stazion
 OUTPUT_PAIR_COLUMN = "stazioni"
 OUTPUT_RHO_COLUMN = "rho"
 
+DATE_FORMATS = (
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%Y/%m/%d",
+    "%d-%m-%Y",
+)
+
+MMDD_PATTERN = re.compile(r"^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")
+
+
+@dataclass(frozen=True)
+class DateFilter:
+    start: date
+    end: date
+
+
+@dataclass(frozen=True)
+class SeasonalFilter:
+    start_month: int
+    start_day: int
+    end_month: int
+    end_day: int
+
+
+PeriodFilter = DateFilter | SeasonalFilter
+
 
 def parse_float(value: str) -> float | None:
     text = value.strip()
@@ -35,6 +70,74 @@ def parse_float(value: str) -> float | None:
         return float(text)
     except ValueError:
         return None
+
+def parse_date(text: str) -> date | None:
+    cleaned = text.strip()
+    if not cleaned:
+        return None
+
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(cleaned, fmt).date()
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(cleaned).date()
+    except ValueError:
+        return None
+
+
+def parse_period_filter(period_start: str | None, period_end: str | None) -> PeriodFilter | None:
+    if period_start is None and period_end is None:
+        return None
+    if period_start is None or period_end is None:
+        raise ValueError("Per filtrare il periodo devi specificare sia --period-start sia --period-end.")
+
+    start_text = period_start.strip()
+    end_text = period_end.strip()
+
+    start_is_mmdd = bool(MMDD_PATTERN.match(start_text))
+    end_is_mmdd = bool(MMDD_PATTERN.match(end_text))
+
+    if start_is_mmdd and end_is_mmdd:
+        start_month, start_day = (int(part) for part in start_text.split("-"))
+        end_month, end_day = (int(part) for part in end_text.split("-"))
+        return SeasonalFilter(
+            start_month=start_month,
+            start_day=start_day,
+            end_month=end_month,
+            end_day=end_day,
+        )
+
+    start_date = parse_date(start_text)
+    end_date = parse_date(end_text)
+    if start_date is None or end_date is None:
+        raise ValueError(
+            "Formato periodo non valido. Usa YYYY-MM-DD (intervallo assoluto) "
+            "oppure MM-DD (periodo stagionale ricorrente)."
+        )
+    if end_date < start_date:
+        raise ValueError("In intervallo assoluto la data finale deve essere >= della data iniziale.")
+    return DateFilter(start=start_date, end=end_date)
+
+
+def is_in_period(current_date: date, period_filter: PeriodFilter | None) -> bool:
+    if period_filter is None:
+        return True
+
+    if isinstance(period_filter, DateFilter):
+        return period_filter.start <= current_date <= period_filter.end
+
+    current_mmdd = (current_date.month, current_date.day)
+    start_mmdd = (period_filter.start_month, period_filter.start_day)
+    end_mmdd = (period_filter.end_month, period_filter.end_day)
+
+    if start_mmdd <= end_mmdd:
+        return start_mmdd <= current_mmdd <= end_mmdd
+
+    return current_mmdd >= start_mmdd or current_mmdd <= end_mmdd
+
 
 
 def pearson_rho(values_a: list[float | None], values_b: list[float | None]) -> float:
@@ -62,7 +165,10 @@ def pearson_rho(values_a: list[float | None], values_b: list[float | None]) -> f
     return num / den
 
 
-def read_station_series(input_csv: str | Path) -> tuple[list[str], dict[str, list[float | None]]]:
+def read_station_series(
+    input_csv: str | Path,
+    period_filter: PeriodFilter | None = None,
+) -> tuple[list[str], dict[str, list[float | None]]]:
     input_path = Path(input_csv)
     if not input_path.exists():
         raise FileNotFoundError(f"File input non trovato: {input_path}")
@@ -82,8 +188,17 @@ def read_station_series(input_csv: str | Path) -> tuple[list[str], dict[str, lis
         station_names = header[1:]
         station_series: dict[str, list[float | None]] = {name: [] for name in station_names}
 
-        for row in reader:
+        for row_idx, row in enumerate(reader, start=2):
             padded_row = row + [""] * (len(header) - len(row))
+            current_date = parse_date(padded_row[0])
+            if current_date is None:
+                raise ValueError(
+                    "Formato data non riconosciuto nella prima colonna "
+                    f"(riga {row_idx}): {padded_row[0]!r}. "
+                    "Formati accettati: YYYY-MM-DD, DD/MM/YYYY, YYYY/MM/DD, DD-MM-YYYY."
+                )
+            if not is_in_period(current_date, period_filter):
+                continue
             for idx, station_name in enumerate(station_names, start=1):
                 station_series[station_name].append(parse_float(padded_row[idx]))
 
@@ -118,13 +233,21 @@ def write_output(output_csv: str | Path, rows: list[dict[str, str]]) -> Path:
     return output_path
 
 
-def run(input_csv: str | Path, output_csv: str | Path) -> Path:
-    station_names, station_series = read_station_series(input_csv)
+def run(
+    input_csv: str | Path,
+    output_csv: str | Path,
+    period_start: str | None = None,
+    period_end: str | None = None,
+) -> Path:
+    period_filter = parse_period_filter(period_start=period_start, period_end=period_end)
+    station_names, station_series = read_station_series(input_csv, period_filter=period_filter)
     rows = compute_station_pair_rho(station_names, station_series)
     output_path = write_output(output_csv, rows)
 
     for row in rows:
         print(f"{row[OUTPUT_PAIR_COLUMN]} -> rho={row[OUTPUT_RHO_COLUMN]}")
+    if period_filter is not None:
+        print(f"Periodo applicato: {period_start} -> {period_end}")
     print(f"\nRisultato salvato in: {output_path}")
 
     return output_path
@@ -153,12 +276,33 @@ def parse_args() -> argparse.Namespace:
             f"Default (da sostituire): {DEFAULT_OUTPUT_CSV}"
         ),
     )
+    parser.add_argument(
+        "--period-start",
+        default=None,
+        help=(
+            "Inizio periodo da analizzare. Usa YYYY-MM-DD per intervallo assoluto "
+            "oppure MM-DD per periodo stagionale ricorrente."
+        ),
+    )
+    parser.add_argument(
+        "--period-end",
+        default=None,
+        help=(
+            "Fine periodo da analizzare. Usa YYYY-MM-DD per intervallo assoluto "
+            "oppure MM-DD per periodo stagionale ricorrente."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(input_csv=args.input_csv, output_csv=args.output_csv)
+    run(
+        input_csv=args.input_csv,
+        output_csv=args.output_csv,
+        period_start=args.period_start,
+        period_end=args.period_end,
+    )
 
 
 if __name__ == "__main__":
