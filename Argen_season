@@ -2379,11 +2379,18 @@ def _select_precip_columns(source_df, ids):
     return source_df[["date"] + available_ids].copy()
 
 def _parse_ddmm(ddmm: str) -> tuple[int, int] | None:
+    """Restituisce (giorno, mese) da una stringa in formato DD/MM."""
+    text = str(ddmm).strip()
     try:
-        dt = pd.to_datetime(f"{str(ddmm).strip()}/2001", format="%d/%m/%Y", errors="raise")
-        return int(dt.month), int(dt.day)
+        dt = pd.to_datetime(f"{text}/2001", format="%d/%m/%Y", errors="raise")
     except Exception:
         return None
+    return int(dt.day), int(dt.month)
+
+
+def _monthday_to_code(month, day):
+    """Codifica confrontabile MMDD evitando ambiguità tra giorno e mese."""
+    return month * 100 + day
 
 def _resolve_seasonal_period(default_start_ddmm: str, default_end_ddmm: str) -> tuple[str, str]:
     start_ddmm = str(default_start_ddmm).strip()
@@ -2445,12 +2452,12 @@ def _build_seasonal_mask(dates: pd.Series, start_ddmm: str, end_ddmm: str) -> pd
             f"(ricevuti start='{start_ddmm}', end='{end_ddmm}')."
         )
 
-    start_month, start_day = start_parts
-    end_month, end_day = end_parts
+    start_day, start_month = start_parts
+    end_day, end_month = end_parts
 
-    start_code = start_month * 100 + start_day
-    end_code = end_month * 100 + end_day
-    current_code = parsed_dates.dt.month * 100 + parsed_dates.dt.day
+    start_code = _monthday_to_code(start_month, start_day)
+    end_code = _monthday_to_code(end_month, end_day)
+    current_code = _monthday_to_code(parsed_dates.dt.month, parsed_dates.dt.day)
 
     valid_dates = parsed_dates.notna()
     if start_code <= end_code:
