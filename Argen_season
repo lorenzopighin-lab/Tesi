@@ -73,8 +73,8 @@ PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/plu
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
 # Periodo stagionale (MM-DD) da applicare ogni anno della simulazione.
-SEASONAL_PERIOD_START_MMDD = "06-01"
-SEASONAL_PERIOD_END_MMDD = "08-31"
+SEASONAL_PERIOD_START_MMDD = "12-01"
+SEASONAL_PERIOD_END_MMDD = "02-28"
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
@@ -84,7 +84,7 @@ MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia M
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitazion_table.csv")
 COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/summer")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/winter")
 STATION_RHO_OUTPUT_DIR = MODEL_OUTPUT_DIR / "station_rho"
 
 # --- Opzioni Kriging ---
