@@ -31,8 +31,8 @@ from pathlib import Path
 
 DEFAULT_INPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/argenflow.csv")
 DEFAULT_OUTPUT_CSV = Path("C:/Users/loren/Desktop/Tesi_magi/rho_meas/rho_stazioni.csv")
-DEFAULT_PERIOD_START = "06-01"
-DEFAULT_PERIOD_END = "08-31"
+DEFAULT_PERIOD_START = "03-01"
+DEFAULT_PERIOD_END = "05-31"
 
 OUTPUT_PAIR_COLUMN = "stazioni"
 OUTPUT_RHO_COLUMN = "rho"
