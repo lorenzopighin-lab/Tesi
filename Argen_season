@@ -2379,18 +2379,19 @@ def _select_precip_columns(source_df, ids):
     return source_df[["date"] + available_ids].copy()
 
 def _parse_ddmm(ddmm: str) -> tuple[int, int] | None:
-    """Restituisce (giorno, mese) da una stringa in formato DD/MM."""
+    """Restituisce (giorno, mese) per una stringa nel formato DD/MM."""
     text = str(ddmm).strip()
     try:
-        dt = pd.to_datetime(f"{text}/2001", format="%d/%m/%Y", errors="raise")
+        day_text, month_text = text.split("/")
+        day = int(day_text)
+        month = int(month_text)
+        if not (1 <= month <= 12):
+            return None
+        # Verifica del calendario usando un anno non bisestile.
+        pd.Timestamp(year=2001, month=month, day=day)
+        return day, month
     except Exception:
         return None
-    return int(dt.day), int(dt.month)
-
-
-def _monthday_to_code(month, day):
-    """Codifica confrontabile MMDD evitando ambiguità tra giorno e mese."""
-    return month * 100 + day
 
 def _resolve_seasonal_period(default_start_ddmm: str, default_end_ddmm: str) -> tuple[str, str]:
     start_ddmm = str(default_start_ddmm).strip()
@@ -2431,6 +2432,18 @@ def _resolve_seasonal_period(default_start_ddmm: str, default_end_ddmm: str) -> 
 def _parse_dates_for_seasonal_filter(dates: pd.Series) -> pd.Series:
     """Parsa le date privilegiando il formato DD/MM/YYYY dei CSV di precipitazione."""
     parsed_dates = pd.to_datetime(dates, format="%d/%m/%Y", errors="coerce")
+    
+    # Alcune pipeline salvano la colonna data come YYYY-MM-DD; gestiamola
+    # esplicitamente prima di usare parser più permissivi.
+    for date_format in ("%Y-%m-%d", "%d-%m-%Y"):
+        missing_mask = parsed_dates.isna()
+        if not missing_mask.any():
+            break
+        parsed_dates.loc[missing_mask] = pd.to_datetime(
+            dates.loc[missing_mask],
+            format=date_format,
+            errors="coerce",
+        )
 
     missing_mask = parsed_dates.isna()
     if missing_mask.any():
@@ -2455,9 +2468,9 @@ def _build_seasonal_mask(dates: pd.Series, start_ddmm: str, end_ddmm: str) -> pd
     start_day, start_month = start_parts
     end_day, end_month = end_parts
 
-    start_code = _monthday_to_code(start_month, start_day)
-    end_code = _monthday_to_code(end_month, end_day)
-    current_code = _monthday_to_code(parsed_dates.dt.month, parsed_dates.dt.day)
+    start_code = start_month * 100 + start_day
+    end_code = end_month * 100 + end_day
+    current_code = parsed_dates.dt.month * 100 + parsed_dates.dt.day
 
     valid_dates = parsed_dates.notna()
     if start_code <= end_code:
