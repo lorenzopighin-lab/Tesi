@@ -73,8 +73,8 @@ PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/plu
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
 # Periodo stagionale (MM-DD) da applicare ogni anno della simulazione.
-SEASONAL_PERIOD_START_MMDD = "12-01"
-SEASONAL_PERIOD_END_MMDD = "02-28"
+SEASONAL_PERIOD_START_MMDD = "03-01"
+SEASONAL_PERIOD_END_MMDD = "05-31"
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
@@ -82,9 +82,9 @@ AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_station_precipitation_table.csv")
-PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitazion_table.csv")
+PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitation_table.csv")
 COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/winter")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/spring")
 STATION_RHO_OUTPUT_DIR = MODEL_OUTPUT_DIR / "station_rho"
 
 # --- Opzioni Kriging ---
@@ -2383,9 +2383,21 @@ def _parse_mmdd(mmdd: str) -> tuple[int, int] | None:
     except Exception:
         return None
 
+def _parse_dates_for_seasonal_filter(dates: pd.Series) -> pd.Series:
+    """Parsa le date privilegiando il formato DD/MM/YYYY dei CSV di precipitazione."""
+    parsed_dates = pd.to_datetime(dates, format="%d/%m/%Y", errors="coerce")
+
+    missing_mask = parsed_dates.isna()
+    if missing_mask.any():
+        parsed_dates.loc[missing_mask] = pd.to_datetime(
+            dates.loc[missing_mask],
+            errors="coerce",
+            dayfirst=True,
+        )
+    return parsed_dates
 
 def _build_seasonal_mask(dates: pd.Series, start_mmdd: str, end_mmdd: str) -> pd.Series:
-    parsed_dates = pd.to_datetime(dates, errors="coerce")
+    parsed_dates = _parse_dates_for_seasonal_filter(dates)
     start_parts = _parse_mmdd(start_mmdd)
     end_parts = _parse_mmdd(end_mmdd)
 
