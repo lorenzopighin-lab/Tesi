@@ -55,7 +55,7 @@ PIXEL_PLACEMENT_MODE = "spacing"
 # Numero massimo di pixel intermedi (solo modalità "equidistant").
 MAX_INTERMEDIATE_PIXELS = 4
 # Distanza tra i pixel intermedi (solo modalità "spacing").
-INTERMEDIATE_SPACING_METERS = 1000.0
+INTERMEDIATE_SPACING_METERS = 1500.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
@@ -73,8 +73,8 @@ PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/plu
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
 # Periodo stagionale (MM-DD) da applicare ogni anno della simulazione.
-SEASONAL_PERIOD_START_MMDD = "03-01"
-SEASONAL_PERIOD_END_MMDD = "05-31"
+SEASONAL_PERIOD_START_MMDD = "09-01"
+SEASONAL_PERIOD_END_MMDD = "11-30"
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
@@ -84,8 +84,9 @@ MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia M
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitation_table.csv")
 COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/spring")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_4000/autumn")
 STATION_RHO_OUTPUT_DIR = MODEL_OUTPUT_DIR / "station_rho"
+SEASONAL_FILTERED_INPUT_DIR = MODEL_OUTPUT_DIR / "seasonal_inputs"
 
 # --- Opzioni Kriging ---
 RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
@@ -2644,17 +2645,28 @@ else:
             label="pixel",
         )
 
-    if not RUN_KRIGING and not combined_precip_table.empty:
-        combined_precip_table.to_csv(COMBINED_PRECIPITATION_OUTPUT, index=False)
+    station_model_input = STATION_PRECIPITATION_OUTPUT
+    pixel_model_input = PIXEL_PRECIPITATION_OUTPUT
+
+    if not RUN_KRIGING:
+        print(
+            "Kriging disabilitato: i file sorgente delle precipitazioni non verranno modificati; "
+            "verranno usate copie filtrate stagionalmente solo per il Model."
+        )
+        if not station_precip_table.empty:
+            SEASONAL_FILTERED_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+            station_model_input = SEASONAL_FILTERED_INPUT_DIR / "station_precipitation_table_seasonal.csv"
+            station_precip_table.to_csv(station_model_input, index=False)
+        if not pixel_precip_table.empty:
+            SEASONAL_FILTERED_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+            pixel_model_input = SEASONAL_FILTERED_INPUT_DIR / "pixel_precipitation_table_seasonal.csv"
+            pixel_precip_table.to_csv(pixel_model_input, index=False)
 
     if not station_precip_table.empty and not pixel_precip_table.empty:
-        if not RUN_KRIGING:
-            station_precip_table.to_csv(STATION_PRECIPITATION_OUTPUT, index=False)
-            pixel_precip_table.to_csv(PIXEL_PRECIPITATION_OUTPUT, index=False)
         try:
             output_file = run_model(
-                STATION_PRECIPITATION_OUTPUT,
-                PIXEL_PRECIPITATION_OUTPUT,
+                station_model_input,
+                pixel_model_input,
                 output_dir=MODEL_OUTPUT_DIR,
                 precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
             )
@@ -2712,7 +2724,7 @@ else:
                         )
             try:
                 station_rho_output = run_station_pairs_model(
-                    STATION_PRECIPITATION_OUTPUT,
+                    station_model_input,
                     output_dir=STATION_RHO_OUTPUT_DIR,
                     precipitation_thresholds=MODEL_PRECIPITATION_THRESHOLDS,
                 )
