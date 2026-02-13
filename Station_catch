@@ -31,10 +31,10 @@ from max_rho_1 import run as run_max_rho_1
 # --- Configurazione generale ---
 
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
-POUR_POINT = array.array('f', [9.596098,	47.627986])
+POUR_POINT = array.array('f', [9.593806,	47.625856])
 SNAP_ACCUMULATION_THRESHOLD = 8000
-BRANCH_ACCUMULATION_THRESHOLD = 4000
-MIN_ACCUMULATION_KM2 = 1
+BRANCH_ACCUMULATION_THRESHOLD = 1000
+MIN_ACCUMULATION_KM2 = 0.8
 
 
 # --- Parametri dimensionali ---
@@ -54,13 +54,13 @@ PIXEL_PLACEMENT_MODE = "spacing"
 # Numero massimo di pixel intermedi (solo modalità "equidistant").
 MAX_INTERMEDIATE_PIXELS = 4
 # Distanza tra i pixel intermedi (solo modalità "spacing").
-INTERMEDIATE_SPACING_METERS = 1000.0
+INTERMEDIATE_SPACING_METERS = 1500.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
-PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/selected_pixels_table.csv")
+PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
@@ -77,22 +77,22 @@ PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
 MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
-STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_station_precipitation_table.csv")
-PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_pixel_precipitazion_table.csv")
-COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_4000/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing")
+STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_station_precipitation_table.csv")
+PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_pixel_precipitation_table.csv")
+COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_catchment_precipitation_table.csv")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000")
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
-USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
+RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
+USE_EXISTING_PRECIP_TABLES = False  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
 EXISTING_PIXEL_PRECIP_TABLE = PIXEL_PRECIPITATION_OUTPUT
 PROMPT_KRIGING_CATCHMENTS = False  # Chiedi da input gli ID dei catchment da interpolare
 # Esempio: ["catchment_001", "catchment_010"] oppure stringa "catchment_001,catchment_010"
 KRIGING_CATCHMENT_IDS = None
-PROMPT_PLOT_PRECIPITATION = False
+PROMPT_PLOT_PRECIPITATION = True
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
 PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 PLOT_RHO_PIXELS = True
@@ -2295,7 +2295,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_301"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_352"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2312,7 +2312,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_301"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_352"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
