@@ -355,6 +355,11 @@ def plot_rho_pixels_on_network(
             return int(float(text))
         except (TypeError, ValueError):
             return None
+        
+    def _normalize_station_id(value) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
     
     rho_table = pd.read_csv(rho_csv_path)
     pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
@@ -391,7 +396,7 @@ def plot_rho_pixels_on_network(
     rho_values["rho_1_mean"] = pd.to_numeric(rho_values["rho_1_mean"], errors="coerce")
     rho_values = rho_values.dropna(subset=["pixel_id"])
     rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
-    rho_values["station_id"] = rho_values["station_id"].astype(str).str.strip()
+    rho_values["station_id"] = rho_values["station_id"].apply(_normalize_station_id)
 
     coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
     merged = coords.merge(rho_values, on="pixel_id", how="inner")
@@ -399,21 +404,13 @@ def plot_rho_pixels_on_network(
         print("Nessun pixel trovato per il plotting di rho.")
         return
     
-    station_lons = None
-    station_lats = None
+    filtered_stations = []
     if station_metadata and station_ids_on_network:
         filtered_stations = [
             rec
             for rec in station_metadata
-            if str(rec.get("station_id") or "").strip() in station_ids_on_network
-        ]
-        if filtered_stations:
-            station_lons = np.asarray(
-                [rec.get("lon") for rec in filtered_stations], dtype=float
-            )
-            station_lats = np.asarray(
-                [rec.get("lat") for rec in filtered_stations], dtype=float
-            )
+            if _normalize_station_id(rec.get("station_id")) in station_ids_on_network
+        ]        
 
     marker_cycle = ["o", "s", "^", "D", "P", "X", "v", "<", ">", "*"]
     station_ids_for_markers = [
@@ -477,7 +474,7 @@ def plot_rho_pixels_on_network(
             cmap = plt.get_cmap("viridis")
             scatter_plot = None
             for station_id, station_points in points_df.groupby("station_id", dropna=False):
-                marker = station_marker_map.get(str(station_id).strip() or "", "o")
+                marker = station_marker_map.get(_normalize_station_id(station_id), "o")
                 scatter_plot = ax.scatter(
                     station_points["x"],
                     station_points["y"],
@@ -494,36 +491,22 @@ def plot_rho_pixels_on_network(
             if scatter_plot is None:
                 scatter_plot = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 
-            if station_lons is not None and station_lats is not None and len(station_lons):
-               legend_handles = []
-               legend_labels = []
-               for rec in filtered_stations:
-                   station_id = str(rec.get("station_id") or "").strip()
-                   if not station_id:
-                       continue
-                   marker = station_marker_map.get(station_id, "o")
-                   station_handle = ax.scatter(
-                       rec.get("lon"),
-                       rec.get("lat"),
-                       s=55,
-                       c="red",
-                       marker=marker,
-                       edgecolors="k",
-                       linewidths=0.4,
-                       zorder=7,
-                   )
-                   legend_handles.append(station_handle)
-                   legend_labels.append(f"Stazione {station_id}")
+            for rec in filtered_stations:
+                station_id = _normalize_station_id(rec.get("station_id"))
+                if not station_id or station_id not in station_marker_map:
+                    continue
+                marker = station_marker_map.get(station_id, "o")
+                ax.scatter(
+                    rec.get("lon"),
+                    rec.get("lat"),
+                    s=55,
+                    c="red",
+                    marker=marker,
+                    edgecolors="k",
+                    linewidths=0.4,
+                    zorder=7,
+                )
 
-               if legend_handles:
-                   ax.legend(
-                       legend_handles,
-                       legend_labels,
-                       loc="upper right",
-                       fontsize=8,
-                       frameon=True,
-                       title="Marker stazioni",
-                   )
             return scatter_plot
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
         ax.set_xlim(grid.bbox[0], grid.bbox[2])
