@@ -32,7 +32,7 @@ from max_rho_1 import run as run_max_rho_1
 
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
 POUR_POINT = array.array('f', [9.593806,	47.625856])
-SNAP_ACCUMULATION_THRESHOLD = 20000
+SNAP_ACCUMULATION_THRESHOLD = 8000
 BRANCH_ACCUMULATION_THRESHOLD = 1000
 MIN_ACCUMULATION_KM2 = 0.8
 
@@ -355,26 +355,15 @@ def plot_rho_pixels_on_network(
             return int(float(text))
         except (TypeError, ValueError):
             return None
-        
-    def _normalize_station_id(value) -> str:
-        if value is None:
-            return ""
-        return str(value).strip()
     
     rho_table = pd.read_csv(rho_csv_path)
     pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
-    station_id_col = _find_column(rho_table, ["Station_id", "station_id"])
     rho_max_col = _find_column(rho_table, ["rho_1_max"])
     rho_mean_col = _find_column(rho_table, ["rho_1_mean"])
 
     missing_cols = [
         name
-        for name, col in (
-            ("pixel_id", pixel_id_col),
-            ("station_id", station_id_col),
-            ("rho_1_max", rho_max_col),
-            ("rho_1_mean", rho_mean_col),
-        )
+        for name, col in (("pixel_id", pixel_id_col), ("rho_1_max", rho_max_col), ("rho_1_mean", rho_mean_col))
         if col is None
     ]
     if missing_cols:
@@ -382,11 +371,10 @@ def plot_rho_pixels_on_network(
             "Colonne mancanti nel CSV rho: " + ", ".join(missing_cols)
         )
 
-    rho_values = rho_table[[pixel_id_col, station_id_col, rho_max_col, rho_mean_col]].copy()
+    rho_values = rho_table[[pixel_id_col, rho_max_col, rho_mean_col]].copy()
     rho_values = rho_values.rename(
         columns={
             pixel_id_col: "pixel_id",
-            station_id_col: "station_id",
             rho_max_col: "rho_1_max",
             rho_mean_col: "rho_1_mean",
         }
@@ -396,7 +384,6 @@ def plot_rho_pixels_on_network(
     rho_values["rho_1_mean"] = pd.to_numeric(rho_values["rho_1_mean"], errors="coerce")
     rho_values = rho_values.dropna(subset=["pixel_id"])
     rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
-    rho_values["station_id"] = rho_values["station_id"].apply(_normalize_station_id)
 
     coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
     merged = coords.merge(rho_values, on="pixel_id", how="inner")
@@ -404,33 +391,26 @@ def plot_rho_pixels_on_network(
         print("Nessun pixel trovato per il plotting di rho.")
         return
     
-    filtered_stations = []
-    station_points_for_plot = globals().get("station_points", [])
-    if station_points_for_plot:
-        filtered_stations = [
-            {
-                "station_id": _normalize_station_id(pt.get("station_id")),
-                "lon": pt.get("snapped_coord", (None, None))[0],
-                "lat": pt.get("snapped_coord", (None, None))[1],
-            }
-            for pt in station_points_for_plot
-            if _normalize_station_id(pt.get("station_id"))
-        ]
-    elif station_metadata and station_ids_on_network:
+    station_lons = None
+    station_lats = None
+    if station_metadata and station_ids_on_network:
         filtered_stations = [
             rec
             for rec in station_metadata
-            if _normalize_station_id(rec.get("station_id")) in station_ids_on_network
-        ]       
+            if str(rec.get("station_id") or "").strip() in station_ids_on_network
+        ]
+        if filtered_stations:
+            station_lons = np.asarray(
+                [rec.get("lon") for rec in filtered_stations], dtype=float
+            )
+            station_lats = np.asarray(
+                [rec.get("lat") for rec in filtered_stations], dtype=float
+            )
 
-    marker_cycle = ["o", "s", "^", "D", "P", "X", "v", "<", ">", "*"]
-    station_ids_for_markers = [
-        sid for sid in pd.unique(merged["station_id"]) if isinstance(sid, str) and sid
+    plot_specs = [
+        ("rho_1_max", "Rho_max"),
+        ("rho_1_mean", "Rho_mean"),
     ]
-    station_marker_map = {
-        station_id: marker_cycle[idx % len(marker_cycle)]
-        for idx, station_id in enumerate(sorted(station_ids_for_markers))
-    }
 
     vmin = RHO_COLOR_SCALE_MIN
     vmax = RHO_COLOR_SCALE_MAX
@@ -481,43 +461,32 @@ def plot_rho_pixels_on_network(
                 line = np.asarray(branch["geometry"]["coordinates"])
                 ax.plot(line[:, 0], line[:, 1], color="0.4", linewidth=0.8, zorder=3)
 
-            norm = colors.Normalize(vmin=vmin, vmax=vmax)
-            cmap = plt.get_cmap("viridis")
-            scatter_plot = None
-            for station_id, station_points in points_df.groupby("station_id", dropna=False):
-                marker = station_marker_map.get(_normalize_station_id(station_id), "o")
-                scatter_plot = ax.scatter(
-                    station_points["x"],
-                    station_points["y"],
-                    s=14,
-                    c=station_points[column],
-                    cmap=cmap,
-                    norm=norm,
-                    marker=marker,
-                    edgecolors="k",
-                    linewidths=0.3,
-                    zorder=6,
-                )
+            scatter_plot = ax.scatter(
+                points_df["x"],
+                points_df["y"],
+                s=10,
+                c=points_df[column],
+                cmap="viridis",
+                vmin=vmin,
+                vmax=vmax,
+                edgecolors="k",
+                linewidths=0.3,
+                zorder=6,
+            )
 
-            if scatter_plot is None:
-                scatter_plot = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-
-            for rec in filtered_stations:
-                station_id = _normalize_station_id(rec.get("station_id"))
-                if not station_id:
-                    continue
-                marker = station_marker_map.get(station_id, "o")
-                ax.scatter(
-                    rec.get("lon"),
-                    rec.get("lat"),
-                    s=55,
-                    c="red",
-                    marker=marker,
-                    edgecolors="k",
-                    linewidths=0.4,
-                    zorder=7,
-                )
-
+            if station_lons is not None and station_lats is not None and len(station_lons):
+               ax.scatter(
+                   station_lons,
+                   station_lats,
+                   s=40,
+                   c="red",
+                   marker="^",
+                   edgecolors="k",
+                   linewidths=0.4,
+                   zorder=7,
+                   label="Stazioni",
+               )
+               ax.legend(loc="upper right", fontsize=9, frameon=True)
             return scatter_plot
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
         ax.set_xlim(grid.bbox[0], grid.bbox[2])
@@ -554,10 +523,16 @@ def plot_rho_pixels_on_network(
             dem_cbar.set_label("Elevation")
             dem_cbar.ax.tick_params(labelsize=9)
 
-            dem_title = (
-                f"Rho_max{title_suffix} su DEM "
-                f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
-            )
+            if column == "rho_1_mean":
+                dem_title = (              
+                        f"Rho_mean{title_suffix} su DEM "
+                        f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"              
+                )
+            else:
+                dem_title = (
+                    f"Rho_max{title_suffix} su DEM "
+                        f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                )
             
             ax.set_title(
                 dem_title,
@@ -565,11 +540,14 @@ def plot_rho_pixels_on_network(
             )
             plt.show()
             
-    _plot_single_series(merged, column="rho_1_max", label="Rho_max")
+    for column, label in plot_specs:
+        _plot_single_series(merged, column=column, label=label)
 
     threshold_filters = [
         ("rho_1_max", "Rho_max", ">", rho_max_sup, f" > {rho_max_sup}"),
         ("rho_1_max", "Rho_max", "<", rho_max_inf, f" < {rho_max_inf}"),
+        ("rho_1_mean", "Rho_mean", ">", rho_mean_sup, f" > {rho_mean_sup}"),
+        ("rho_1_mean", "Rho_mean", "<", rho_mean_inf, f" < {rho_mean_inf}"),
     ]
 
     for column, label, operator, threshold, title_suffix in threshold_filters:
@@ -2360,7 +2338,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_DE110220"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_352"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2377,7 +2355,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_352"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
