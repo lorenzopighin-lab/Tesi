@@ -84,8 +84,8 @@ MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
-USE_EXISTING_PRECIP_TABLES = False  # Usa serie già estratte quando il kriging è disabilitato
+RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
+USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
 EXISTING_PIXEL_PRECIP_TABLE = PIXEL_PRECIPITATION_OUTPUT
@@ -100,6 +100,10 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
+rho_max_inf = 0.912183492  #si plottano i valori <inf e >sup
+rho_max_sup = 0.912183492
+rho_mean_inf = 0.850003945
+rho_mean_sup = 0.850003945
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -257,7 +261,7 @@ def plot_precipitation_map(
             station_data["lon"],
             station_data["lat"],
             s=55,
-            marker="o",
+            marker="^",
             facecolor=point_colors,
             edgecolor="black",
             linewidth=0.6,
@@ -432,7 +436,16 @@ def plot_rho_pixels_on_network(
             else:
                 print("Inserire due valori (min,max) per la scala colori.")
 
-    for column, label in plot_specs:
+    def _plot_single_series(
+        points_df: pd.DataFrame,
+        *,
+        column: str,
+        label: str,
+        title_suffix: str = "",
+    ):
+        if points_df.empty:
+            print(f"Nessun pixel disponibile per il plot {label}{title_suffix}.")
+            return
         def _plot_network(ax, *, with_dem: bool = False):
             if with_dem and dem_background is not None and dem_extent is not None:
                 ax.imshow(
@@ -449,10 +462,10 @@ def plot_rho_pixels_on_network(
                 ax.plot(line[:, 0], line[:, 1], color="0.4", linewidth=0.8, zorder=3)
 
             scatter_plot = ax.scatter(
-                merged["x"],
-                merged["y"],
-                s=30,
-                c=merged[column],
+                points_df["x"],
+                points_df["y"],
+                s=10,
+                c=points_df[column],
                 cmap="viridis",
                 vmin=vmin,
                 vmax=vmax,
@@ -483,7 +496,10 @@ def plot_rho_pixels_on_network(
         cbar = plt.colorbar(scatter, ax=ax, label=label)
         cbar.ax.tick_params(labelsize=9)
         ax.set_title(
-            f"{label} su rete canali (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+            (
+                f"{label}{title_suffix} su rete canali "
+                f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+            ),
             size=13,
         )
         plt.show()
@@ -508,12 +524,14 @@ def plot_rho_pixels_on_network(
             dem_cbar.ax.tick_params(labelsize=9)
 
             if column == "rho_1_mean":
-                dem_title = (
-                    f"Rho_mean su DEM (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                dem_title = (              
+                        f"Rho_mean{title_suffix} su DEM "
+                        f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"              
                 )
             else:
                 dem_title = (
-                    f"Rho_max su DEM (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                    f"Rho_max{title_suffix} su DEM "
+                        f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
                 )
             
             ax.set_title(
@@ -521,6 +539,28 @@ def plot_rho_pixels_on_network(
                 size=13,
             )
             plt.show()
+            
+    for column, label in plot_specs:
+        _plot_single_series(merged, column=column, label=label)
+
+    threshold_filters = [
+        ("rho_1_max", "Rho_max", ">", rho_max_sup, f" > {rho_max_sup}"),
+        ("rho_1_max", "Rho_max", "<", rho_max_inf, f" < {rho_max_inf}"),
+        ("rho_1_mean", "Rho_mean", ">", rho_mean_sup, f" > {rho_mean_sup}"),
+        ("rho_1_mean", "Rho_mean", "<", rho_mean_inf, f" < {rho_mean_inf}"),
+    ]
+
+    for column, label, operator, threshold, title_suffix in threshold_filters:
+        if operator == ">":
+            filtered_points = merged[merged[column] > threshold]
+        else:
+            filtered_points = merged[merged[column] < threshold]
+        _plot_single_series(
+            filtered_points,
+            column=column,
+            label=label,
+            title_suffix=title_suffix,
+        )
     
 def _load_station_points(meta_path: Path):
     if not meta_path:
@@ -967,7 +1007,7 @@ if (
         precip_station_lons,
         precip_station_lats,
         s=50,
-        marker='o',
+        marker='^',
         facecolors='#90caf9',
         edgecolors='black',
         linewidth=0.6,
@@ -1019,7 +1059,7 @@ if (
         precip_station_lons,
         precip_station_lats,
         s=50,
-        marker='o',
+        marker='^',
         facecolors='#90caf9',
         edgecolors='black',
         linewidth=0.6,
@@ -1954,7 +1994,7 @@ if selected_snapped_coords.size:
     ax.scatter(
         selected_snapped_coords[:, 0],
         selected_snapped_coords[:, 1],
-        s=18,
+        s=10,
         c="red",
         edgecolors="k",
         linewidths=0.3,
@@ -1965,7 +2005,8 @@ if station_snapped_coords.size:
     ax.scatter(
         station_snapped_coords[:, 0],
         station_snapped_coords[:, 1],
-        s=18,
+        s=22,
+        marker='^',
         c="darkblue",
         edgecolors="k",
         linewidths=0.3,
@@ -1988,7 +2029,8 @@ if station_snapped_coords.size:
     ax.scatter(
         station_snapped_coords[:, 0],
         station_snapped_coords[:, 1],
-        s=20,
+        s=22,
+        marker="^",
         c="darkblue",
         edgecolors="k",
         linewidths=0.3,
@@ -2012,7 +2054,7 @@ if selected_snapped_coords.size:
     ax.scatter(
         selected_snapped_coords[:, 0],
         selected_snapped_coords[:, 1],
-        s=20,
+        s=10,
         c="red",
         edgecolors="k",
         linewidths=0.3,
@@ -2162,7 +2204,7 @@ def plot_catchment_i(catchment_id,
         ax.scatter(
             xs,
             ys,
-            s=20,
+            s=10,
             c='red',
             edgecolor='k',
             linewidths=0.3,
@@ -2246,6 +2288,7 @@ def plot_selected_pixel_catchment(
             station_coords[:, 0],
             station_coords[:, 1],
             s=22,
+            marker="^",
             c="orange",
             edgecolors="k",
             linewidths=0.3,
