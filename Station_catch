@@ -34,6 +34,7 @@ dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
 POUR_POINT = array.array('f', [9.593806,	47.625856])
 SNAP_ACCUMULATION_THRESHOLD = 8000
 BRANCH_ACCUMULATION_THRESHOLD = 1000
+STATION_SNAP_ACCUMULATION_THRESHOLD = 8000
 MIN_ACCUMULATION_KM2 = 0.8
 
 
@@ -1520,12 +1521,25 @@ for rr, cc in selected_coords_list:
 # Costruisce il set di punti selezionati corrispondenti alle stazioni sulla rete.
 stations_on_network = []
 stations_outside_network = []
-if channel_mask_acc.any():
+station_channel_mask_acc = channel_mask_acc & (
+    acc_view >= STATION_SNAP_ACCUMULATION_THRESHOLD
+)
+if station_channel_mask_acc.any():
+    station_snap_mask = station_channel_mask_acc
+    station_channel_indices = np.argwhere(station_channel_mask_acc)
+    if catch_view is not None and station_channel_indices.size:
+        station_channel_indices = station_channel_indices[
+            catch_view[station_channel_indices[:, 0], station_channel_indices[:, 1]]
+        ]
+elif channel_mask_acc.any():
     station_snap_mask = channel_mask_acc
+    station_channel_indices = channel_indices
 elif catch_view is not None and catch_view.any():
     station_snap_mask = catch_view
+    station_channel_indices = None
 else:
     station_snap_mask = np.ones_like(acc_view, dtype=bool)
+    station_channel_indices = None
 
 if station_metadata:
     total_stations = len(station_metadata)
@@ -1576,10 +1590,10 @@ if station_metadata:
             not (0 <= rsnap < H and 0 <= csnap < W)
             or not channel_mask_acc[rsnap, csnap]
         ):
-            nearest_rc = _nearest_channel_index(rr, cc, channel_indices)
+            nearest_rc = _nearest_channel_index(rr, cc, station_channel_indices)
             if nearest_rc is None:
                 nearest_rc = _local_max_index(
-                    rr, cc, acc_view, mask=channel_mask_acc, max_radius=10
+                    rr, cc, acc_view, mask=station_snap_mask, max_radius=10
                 )
             if nearest_rc is not None:
                 rsnap, csnap = nearest_rc
@@ -1592,7 +1606,7 @@ if station_metadata:
             or (catch_view is not None and not catch_view[rsnap, csnap])
             or not mask_acc[rsnap, csnap]
         ):
-            nearest_rc = _nearest_channel_index(rr, cc, channel_indices)
+            nearest_rc = _nearest_channel_index(rr, cc, station_channel_indices)
             if nearest_rc is None:
                 nearest_rc = _local_max_index(
                     rr, cc, acc_view, mask=station_snap_mask, max_radius=10
