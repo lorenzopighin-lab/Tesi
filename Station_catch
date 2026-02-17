@@ -2029,7 +2029,7 @@ if station_snapped_coords.size:
     ax.scatter(
         station_snapped_coords[:, 0],
         station_snapped_coords[:, 1],
-        s=22,
+        s=40,
         marker="^",
         c="darkblue",
         edgecolors="k",
@@ -2338,7 +2338,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_352"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE110220"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2355,7 +2355,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_352"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
