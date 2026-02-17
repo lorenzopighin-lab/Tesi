@@ -32,7 +32,7 @@ from max_rho_1 import run as run_max_rho_1
 
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
 POUR_POINT = array.array('f', [9.593806,	47.625856])
-SNAP_ACCUMULATION_THRESHOLD = 8000
+SNAP_ACCUMULATION_THRESHOLD = 20000
 BRANCH_ACCUMULATION_THRESHOLD = 1000
 MIN_ACCUMULATION_KM2 = 0.8
 
@@ -405,12 +405,23 @@ def plot_rho_pixels_on_network(
         return
     
     filtered_stations = []
-    if station_metadata and station_ids_on_network:
+    station_points_for_plot = globals().get("station_points", [])
+    if station_points_for_plot:
+        filtered_stations = [
+            {
+                "station_id": _normalize_station_id(pt.get("station_id")),
+                "lon": pt.get("snapped_coord", (None, None))[0],
+                "lat": pt.get("snapped_coord", (None, None))[1],
+            }
+            for pt in station_points_for_plot
+            if _normalize_station_id(pt.get("station_id"))
+        ]
+    elif station_metadata and station_ids_on_network:
         filtered_stations = [
             rec
             for rec in station_metadata
             if _normalize_station_id(rec.get("station_id")) in station_ids_on_network
-        ]        
+        ]       
 
     marker_cycle = ["o", "s", "^", "D", "P", "X", "v", "<", ">", "*"]
     station_ids_for_markers = [
@@ -493,7 +504,7 @@ def plot_rho_pixels_on_network(
 
             for rec in filtered_stations:
                 station_id = _normalize_station_id(rec.get("station_id"))
-                if not station_id or station_id not in station_marker_map:
+                if not station_id:
                     continue
                 marker = station_marker_map.get(station_id, "o")
                 ax.scatter(
@@ -2349,7 +2360,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_352"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE110220"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2366,7 +2377,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_352"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
