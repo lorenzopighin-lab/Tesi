@@ -34,7 +34,7 @@ dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
 POUR_POINT = array.array('f', [9.593806,	47.625856])
 SNAP_ACCUMULATION_THRESHOLD = 8000
 BRANCH_ACCUMULATION_THRESHOLD = 1000
-STATION_SNAP_ACCUMULATION_THRESHOLD = 8000
+STATION_SNAP_ACCUMULATION_THRESHOLD = 15000
 MIN_ACCUMULATION_KM2 = 0.8
 
 
@@ -1878,7 +1878,7 @@ for point in selected_points:
 
     mask = _compute_catchment(rsnap, csnap)
 
-    if mask is None:
+    if mask is None and not is_station:
         alt_r, alt_c = _local_max_index(
             rsnap, csnap, acc_view, mask=channel_mask, max_radius=10
         )
@@ -1893,7 +1893,7 @@ for point in selected_points:
                 expected_area_reference = expected_area
                 mask = _compute_catchment(rsnap, csnap)
                 
-    if mask is None:
+    if mask is None and not is_station:
         x_orig, y_orig = point.get("initial_coord", (None, None))
         r_orig, c_orig = point["row"], point["col"]
         if (
@@ -1913,6 +1913,12 @@ for point in selected_points:
 
     if mask is None:
         point["catchment_found"] = False
+        if is_station:
+            station_id = str(point.get("station_id") or "").strip() or "sconosciuta"
+            print(
+                "Avviso: catchment non trovato per la stazione "
+                f"{station_id} sulla cella snappata ({rsnap}, {csnap})."
+            )
         failed_points.append({"point": point, "reason": "catchment non trovato"})
         continue
     
