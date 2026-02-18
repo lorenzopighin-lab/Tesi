@@ -359,7 +359,21 @@ def plot_rho_pixels_on_network(
     def _normalize_station_id(value) -> str:
         if value is None:
             return ""
-        return str(value).strip()
+        text = str(value).strip()
+        if not text:
+            return ""
+        lowered = text.lower()
+        if lowered.startswith("catchment_"):
+            text = text.split("_", 1)[1].strip()
+        try:
+            numeric_value = float(text)
+        except (TypeError, ValueError):
+            return text
+        if not np.isfinite(numeric_value):
+            return ""
+        if numeric_value.is_integer():
+            return str(int(numeric_value))
+        return f"{numeric_value:g}"
     
     rho_table = pd.read_csv(rho_csv_path)
     pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
@@ -510,7 +524,7 @@ def plot_rho_pixels_on_network(
                 ax.scatter(
                     rec.get("lon"),
                     rec.get("lat"),
-                    s=55,
+                    s=45,
                     c="red",
                     marker=marker,
                     edgecolors="k",
@@ -2360,7 +2374,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_DE110220"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DE111240"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2377,7 +2391,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_DE111240"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
