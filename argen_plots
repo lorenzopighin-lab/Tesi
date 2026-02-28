@@ -793,7 +793,23 @@ def _station_has_data_in_period(
     end_date: str,
 ):
     """Verifica se una stazione ha almeno un dato valido nel periodo richiesto."""
-
+    
+    def _parse_station_dates(date_series: pd.Series, *, date_format: str | None = None) -> pd.Series:
+        cleaned = date_series.astype(str).str.strip()
+        if date_format:
+            cleaned_dates = cleaned.str.extract(r"(\d{8})", expand=False)
+            parsed = pd.to_datetime(cleaned_dates, format=date_format, errors="coerce")
+            parsed = parsed.dt.tz_localize(None)
+            if parsed.notna().any():
+                return parsed
+        first_pass = pd.to_datetime(cleaned, utc=True, errors="coerce")
+        if first_pass.isna().any():
+            dayfirst_pass = pd.to_datetime(cleaned, utc=True, dayfirst=True, errors="coerce")
+            parsed = dayfirst_pass if dayfirst_pass.notna().sum() > first_pass.notna().sum() else first_pass
+        else:
+            parsed = first_pass
+        return parsed.dt.tz_convert(None)
+    
     if not station_id or data_dir is None:
         return False
     station_id_text = str(station_id).strip()
@@ -828,42 +844,77 @@ def _station_has_data_in_period(
     try:
         station_df = pd.read_csv(
             station_file,
-            sep=r"\s+|;|,",
+            sep=None,
             engine="python",
+            dtype=str,
+            skipinitialspace=True,
             comment="#",
         )
+    except pd.errors.ParserError:
+        try:
+            station_df = pd.read_csv(
+                station_file,
+                sep=";",
+                dtype=str,
+                skipinitialspace=True,
+                comment="#",
+            )
+        except Exception:
+            return False
     except Exception:
         return False
 
     if station_df.empty:
         return False
 
-    date_col = None
-    for candidate in ("Date", "date", "DATA", "Data"):
-        if candidate in station_df.columns:
-            date_col = candidate
-            break
-    if date_col is None:
-        date_col = station_df.columns[0]
-
-    value_col = None
-    for candidate in ("P", "precip", "precipitation", "RR", "value", "Val"):
-        if candidate in station_df.columns and candidate != date_col:
-            value_col = candidate
-            break
-    if value_col is None:
-        for col in station_df.columns:
-            if col != date_col:
-                value_col = col
-                break
-    if value_col is None:
+    station_df.columns = [str(col).strip() for col in station_df.columns]
+    station_df = station_df.loc[:, ~station_df.columns.str.match(r"^Unnamed")]
+    station_df = station_df.loc[:, station_df.columns != ""]
+    if station_df.empty:
         return False
 
-    dates = pd.to_datetime(station_df[date_col], dayfirst=True, errors="coerce")
+    columns_lower = {col.lower(): col for col in station_df.columns}
+
+    if {"mess_datum", "rs"}.issubset(columns_lower):
+        date_col = columns_lower["mess_datum"]
+        value_col = columns_lower["rs"]
+        dates = _parse_station_dates(station_df[date_col], date_format="%Y%m%d")
+    elif {"date", "precipitation_mean"}.issubset(columns_lower):
+        date_col = columns_lower["date"]
+        value_col = columns_lower["precipitation_mean"]
+        dates = _parse_station_dates(station_df[date_col])
+    else:
+        date_col = None
+        for candidate in ("Date", "date", "DATA", "Data", "MESS_DATUM", "mess_datum"):
+            if candidate in station_df.columns:
+                date_col = candidate
+                break
+        if date_col is None:
+            date_col = station_df.columns[0]
+
+        value_col = None
+        for candidate in ("P", "precip", "precipitation", "RR", "value", "Val", "RS", "rs"):
+            if candidate in station_df.columns and candidate != date_col:
+                value_col = candidate
+                break
+        if value_col is None:
+            for col in station_df.columns:
+                if col != date_col:
+                    value_col = col
+                    break
+        if value_col is None:
+            return False
+
+        date_format = "%Y%m%d" if date_col.lower() == "mess_datum" else None
+        dates = _parse_station_dates(station_df[date_col], date_format=date_format)
     values = pd.to_numeric(station_df[value_col], errors="coerce")
 
-    start_ts = pd.Timestamp(start_date)
-    end_ts = pd.Timestamp(end_date)
+    start_ts = pd.to_datetime(start_date, errors="coerce")
+    end_ts = pd.to_datetime(end_date, errors="coerce")
+    if pd.isna(start_ts) or pd.isna(end_ts):
+        return False
+    start_ts = start_ts.normalize()
+    end_ts = end_ts.normalize()
     in_period = (dates >= start_ts) & (dates <= end_ts)
     return bool((in_period & values.notna()).any())
 
