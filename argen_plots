@@ -190,6 +190,15 @@ def _extent_from_transform(transform, width: int, height: int):
     y_min = y_max + transform.e * height
     return [x_min, x_max, y_min, y_max]
 
+def add_vertical_colorbar(fig, ax, mappable, label: str, *, size: str = "4%", pad: float = 0.1):
+    """Aggiunge una colorbar verticale con altezza uguale all'asse del plot."""
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size=size, pad=pad)
+    cbar = fig.colorbar(mappable, cax=cax)
+    if label:
+        cbar.set_label(label)
+    return cbar
 
 def plot_precipitation_map(
     date_text: str,
@@ -277,7 +286,7 @@ def plot_precipitation_map(
     ax.set_ylabel("y")
     ax.set_title(f"Precipitazione interpolata {date_text}")
     add_scale_bar(ax, transform, pixel_size_meters=pixel_size_meters)
-    cbar = fig.colorbar(img, ax=ax, label="Precipitazione [mm]")
+    cbar = add_vertical_colorbar(fig, ax, img, "Precipitazione [mm]")
     cbar.ax.tick_params(labelsize=10)
     plt.tight_layout()
     plt.show()
@@ -496,7 +505,7 @@ def plot_rho_pixels_on_network(
         ax.set_ylim(grid.bbox[1], grid.bbox[3])
         ax.set_aspect("equal")
         scatter = _plot_network(ax, with_dem=False)   
-        cbar = plt.colorbar(scatter, ax=ax, label=label)
+        cbar = add_vertical_colorbar(fig, ax, scatter, label)
         cbar.ax.tick_params(labelsize=9)
         ax.set_title(
             (
@@ -787,8 +796,33 @@ def _station_has_data_in_period(
 
     if not station_id or data_dir is None:
         return False
-    station_file = data_dir / f"{station_id}.txt"
-    if not station_file.exists():
+    station_id_text = str(station_id).strip()
+    candidate_names = [station_id_text]
+    if station_id_text.endswith(".0"):
+        candidate_names.append(station_id_text[:-2])
+    try:
+        numeric_id = float(station_id_text)
+        if np.isfinite(numeric_id):
+            candidate_names.append(str(int(numeric_id)))
+    except (TypeError, ValueError):
+        pass
+
+    station_file = None
+    for candidate in dict.fromkeys(name for name in candidate_names if name):
+        candidate_path = data_dir / f"{candidate}.txt"
+        if candidate_path.exists():
+            station_file = candidate_path
+            break
+
+    if station_file is None:
+        file_lookup = {path.stem.lower(): path for path in data_dir.glob("*.txt")}
+        for candidate in candidate_names:
+            match = file_lookup.get(str(candidate).lower())
+            if match is not None:
+                station_file = match
+                break
+
+    if station_file is None:
         return False
 
     try:
@@ -909,7 +943,7 @@ im = ax.imshow(acc, extent=grid.extent, zorder=2,
                interpolation='bilinear')
 _set_extent_limits(ax, grid.extent)
 
-plt.colorbar(im, ax=ax, label='Upstream Cells')
+add_vertical_colorbar(fig, ax, im, 'Upstream Cells')
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
@@ -938,8 +972,8 @@ dem_im = ax.imshow(
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
-plt.colorbar(dem_im, ax=ax, label='Elevation')
+add_scale_bar(ax, grid.affine, location='lower left')
+add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
 plt.tight_layout()
 
 # DEM + catchment + outlet point
@@ -989,7 +1023,7 @@ _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower right')
-plt.colorbar(dem_im, ax=ax, label='Elevation')
+add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
 ax.legend(loc='upper right')
 plt.tight_layout()
 plt.show()
@@ -1031,23 +1065,29 @@ _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower right')
-plt.colorbar(dem_im, ax=ax, label='Elevation')
+add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
 ax.legend(loc='upper right')
 plt.tight_layout()
 plt.show()
 
-# DEM + rain stations with data in 2000-01-01 / 2020-12-31
+#DEM + rain stations with data nel periodo impostato
 rain_stations_with_data = []
 for rec in precip_station_metadata or []:
     station_id = (rec.get("station_id") or "").strip()
     if _station_has_data_in_period(
         station_id,
         PRECIP_DATA_DIR,
-        "2000-01-01",
-        "2020-12-31",
+        PRECIP_DATE_START,
+        PRECIP_DATE_END,
     ):
         rain_stations_with_data.append(rec)
-
+        
+if not rain_stations_with_data:
+    print(
+        "Nessuna stazione di precipitazione con dati nel periodo "
+        f"{PRECIP_DATE_START} / {PRECIP_DATE_END}."
+    )
+    
 fig, ax = plt.subplots(figsize=(8, 6))
 dem_im = ax.imshow(
     inflated_dem_masked,
@@ -1067,16 +1107,17 @@ if rain_stations_with_data:
         edgecolors='black',
         linewidth=0.6,
         zorder=6,
-        label='Rain stations with data (2000-2020)',
+        label='Available rain stations',
     )
     _annotate_station_labels(ax, rain_stations_with_data)
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
-plt.colorbar(dem_im, ax=ax, label='Elevation')
+add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
 ax.legend(loc='upper right')
 plt.tight_layout()
+plt.show()
 
 # Flow directions (no outlet section)
 fig, ax = plt.subplots(figsize=(8, 6))
@@ -1090,7 +1131,7 @@ _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower right')
-cbar = plt.colorbar(fdir_im, ax=ax, label='Flow direction (D8 code)')
+cbar = add_vertical_colorbar(fig, ax, fdir_im, 'Flow direction (D8 code)')
 d8_codes = [64, 128, 1, 2, 4, 8, 16, 32]
 cbar.set_ticks(d8_codes)
 
@@ -1108,7 +1149,7 @@ _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower right')
-plt.colorbar(acc_im, ax=ax, label='Upstream Cells')
+add_vertical_colorbar(fig, ax, acc_im, 'Upstream Cells')
 plt.tight_layout()
 #%%branches
 # Limita la griglia al bacino e ricava la rete drenante principale.
