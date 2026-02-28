@@ -124,7 +124,7 @@ def add_scale_bar(
     transform,
     *,
     preferred_lengths_meters=None,
-    location="lower right",
+    location="lower left",
     color="black",
     pixel_size_meters: float = PIXEL_SIZE_METERS,
 ):
@@ -695,7 +695,14 @@ precip_station_metadata, precip_station_lons, precip_station_lats = (
     _load_precip_station_points(PRECIP_STATION_META_PATH)
 )
 
-def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
+def _annotate_station_labels(
+    ax,
+    records,
+    *,
+    text_color="black",
+    fontsize=8,
+    preferred_offsets=None,
+):
     """Annota i nomi delle stazioni su un asse Matplotlib.
 
     Parameters
@@ -737,6 +744,11 @@ def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
         (10, -6),
         (-10, -6),
     ]
+    if preferred_offsets:
+        preferred = [tuple(offset) for offset in preferred_offsets]
+        candidate_offsets = preferred + [
+            offset for offset in candidate_offsets if offset not in preferred
+        ]
 
     def _create_annotation(lon, lat, text, offset):
         return ax.annotate(
@@ -760,13 +772,20 @@ def _annotate_station_labels(ax, records, *, text_color="black", fontsize=8):
         if renderer is None:
             ax.figure.canvas.draw()
             renderer = ax.figure.canvas.get_renderer()
+        axes_bbox = ax.get_window_extent(renderer=renderer)
 
         text_obj = None
         bbox = None
         for offset in candidate_offsets:
             text_obj = _create_annotation(lon, lat, label, offset)
             bbox = text_obj.get_window_extent(renderer=renderer).expanded(1.08, 1.1)
-            if any(bbox.overlaps(existing) for existing in placed_bboxes):
+            is_outside_axes = (
+                bbox.x0 < axes_bbox.x0
+                or bbox.y0 < axes_bbox.y0
+                or bbox.x1 > axes_bbox.x1
+                or bbox.y1 > axes_bbox.y1
+            )
+            if is_outside_axes or any(bbox.overlaps(existing) for existing in placed_bboxes):
                 text_obj.remove()
                 text_obj = None
                 continue
@@ -1111,13 +1130,17 @@ if (
         zorder=6,
         label='Discharge stations in catchment',
     )
-    _annotate_station_labels(ax, stations_in_catchment)
+    _annotate_station_labels(
+        ax,
+        stations_in_catchment,
+        preferred_offsets=[(4, -4), (8, -6), (10, -6), (12, -8)],
+    )
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
+add_scale_bar(ax, grid.affine, location='lower left')
 add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
-ax.legend(loc='upper right')
+ax.legend(loc='upper center')
 plt.tight_layout()
 plt.show()
 
@@ -1153,20 +1176,19 @@ if rain_stations_with_data:
         rain_lons,
         rain_lats,
         s=50,
-        marker='^',
+        marker='o',
         facecolors='#90caf9',
         edgecolors='black',
         linewidth=0.6,
         zorder=6,
-        label='Available rain stations',
-    )
-    _annotate_station_labels(ax, rain_stations_with_data)
+        label='Available rain stations',)
+
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
 add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
-ax.legend(loc='upper right')
+ax.legend(loc='upper center')
 plt.tight_layout()
 plt.show()
 
@@ -1181,7 +1203,7 @@ fdir_im = ax.imshow(
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
+add_scale_bar(ax, grid.affine, location='lower left')
 cbar = add_vertical_colorbar(fig, ax, fdir_im, 'Flow direction (D8 code)')
 d8_codes = [64, 128, 1, 2, 4, 8, 16, 32]
 cbar.set_ticks(d8_codes)
@@ -1199,7 +1221,7 @@ acc_im = ax.imshow(
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
+add_scale_bar(ax, grid.affine, location='lower left')
 add_vertical_colorbar(fig, ax, acc_im, 'Upstream Cells')
 plt.tight_layout()
 #%%branches
@@ -2389,7 +2411,7 @@ def plot_catchment_i(catchment_id,
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
     ax.set_title(f"Area contribuente {catchment_label} su bacino principale")
-    add_scale_bar(ax, transform_view, location='lower right')
+    add_scale_bar(ax, transform_view, location='lower left')
     ax.legend(loc="best")
     plt.show()
     
@@ -2483,7 +2505,7 @@ def plot_selected_pixel_catchment(
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_title(f"Area contribuente {catchment_label} con stazioni sulla rete")
-    add_scale_bar(ax, transform_view, location="lower right")
+    add_scale_bar(ax, transform_view, location="lower left")
     ax.legend(loc="best")
     plt.show()
 
