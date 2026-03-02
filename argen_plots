@@ -1204,7 +1204,7 @@ fdir_sector = np.full(fdir_view.shape, np.nan, dtype='float32')
 for code, sector_idx in d8_code_to_sector.items():
     fdir_sector[fdir_view == code] = sector_idx
 
-fdir_cmap = plt.get_cmap('viridis', len(sector_labels))
+fdir_cmap = plt.get_cmap('RdBu', len(sector_labels))
 fdir_im = ax.imshow(
     fdir_sector,
     extent=grid.extent,
@@ -1328,7 +1328,7 @@ for branch in branches['features']:
 segment_values = np.asarray(segment_values, dtype=float)
 lc = LineCollection(
     segments_all,
-    cmap='viridis',
+    cmap='RdBu',
     norm=norm,
     linewidths=2.0,
 )
@@ -1341,6 +1341,7 @@ cbar = fig.colorbar(lc, cax=cax)
 cbar.set_label('Contributing area [km²]')
 
 plt.tight_layout()
+
 #%% Impostazioni distribuzione pixel lungo i rami
 # I parametri sono definiti nella sezione di configurazione iniziale.
 # Rasterizza la rete per identificare i pixel appartenenti a ciascun ramo.
