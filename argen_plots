@@ -12,6 +12,7 @@ import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from matplotlib.patches import Patch
+from matplotlib.collections import LineCollection
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
@@ -1287,6 +1288,59 @@ _ = plt.title(
     f"Channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
     size=14,
 )
+
+#%%%plot branches colorate per area contribuente (km²)
+fig, ax = plt.subplots(figsize=(8.5, 6.5))
+ax.set_xlim(grid.bbox[0], grid.bbox[2])
+ax.set_ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+add_scale_bar(ax, grid.affine, location='lower left')
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+
+acc_km2 = (grid.view(acc).astype(float) * PIXEL_AREA_M2) / 1e6
+valid_acc = acc_km2[np.isfinite(acc_km2) & (acc_km2 > 0)]
+if valid_acc.size:
+    norm = colors.LogNorm(vmin=float(np.nanmin(valid_acc)), vmax=float(np.nanmax(valid_acc)))
+else:
+    norm = colors.Normalize(vmin=0.0, vmax=1.0)
+
+segments_all = []
+segment_values = []
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'], dtype=float)
+    if line.shape[0] < 2:
+        continue
+    for i in range(line.shape[0] - 1):
+        x0, y0 = line[i, 0], line[i, 1]
+        x1, y1 = line[i + 1, 0], line[i + 1, 1]
+        segments_all.append([(x0, y0), (x1, y1)])
+
+        xm = 0.5 * (x0 + x1)
+        ym = 0.5 * (y0 + y1)
+        row, col = rowcol(grid.affine, xm, ym)
+        if 0 <= row < acc_km2.shape[0] and 0 <= col < acc_km2.shape[1]:
+            seg_val = acc_km2[row, col]
+        else:
+            seg_val = np.nan
+        segment_values.append(seg_val)
+
+segment_values = np.asarray(segment_values, dtype=float)
+lc = LineCollection(
+    segments_all,
+    cmap='viridis',
+    norm=norm,
+    linewidths=2.0,
+)
+lc.set_array(np.where(np.isfinite(segment_values), segment_values, norm.vmin))
+ax.add_collection(lc)
+
+divider = make_axes_locatable(ax)
+cax = divider.append_axes("right", size="4%", pad=0.1)
+cbar = fig.colorbar(lc, cax=cax)
+cbar.set_label('Contributing area [km²]')
+
+plt.tight_layout()
 #%% Impostazioni distribuzione pixel lungo i rami
 # I parametri sono definiti nella sezione di configurazione iniziale.
 # Rasterizza la rete per identificare i pixel appartenenti a ciascun ramo.
@@ -1311,6 +1365,8 @@ branches_raster = rasterio.features.rasterize(
 # --- identificazione delle confluenze e dei pixel a monte ---
 acc_view = grid.view(acc)              # acc calcolato prima: acc = grid.accumulation(fdir)
 H, W = acc_view.shape
+
+
 
 cell_area_m2 = PIXEL_AREA_M2
 cell_size_x = PIXEL_SIZE_METERS
