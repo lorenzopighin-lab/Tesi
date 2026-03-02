@@ -1284,10 +1284,7 @@ for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
     
-_ = plt.title(
-    f"Channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
-    size=14,
-)
+
 
 #%%%plot branches colorate per area contribuente (km²)
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
