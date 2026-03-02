@@ -12,7 +12,6 @@ import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from matplotlib.patches import Patch
-from matplotlib.collections import LineCollection
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
@@ -1298,12 +1297,16 @@ ax.set_ylabel('Latitude')
 acc_km2 = (grid.view(acc).astype(float) * PIXEL_AREA_M2) / 1e6
 valid_acc = acc_km2[np.isfinite(acc_km2) & (acc_km2 > 0)]
 if valid_acc.size:
-    norm = colors.LogNorm(vmin=float(np.nanmin(valid_acc)), vmax=float(np.nanmax(valid_acc)))
+    acc_min = float(np.nanmin(valid_acc))
+    acc_max = float(np.nanmax(valid_acc))
+    # Estremi colore richiesti: area minima in rosso, area massima in blu.
+    norm = colors.Normalize(vmin=acc_min, vmax=acc_max)
 else:
+    acc_min = 0.0
+    acc_max = 1.0
     norm = colors.Normalize(vmin=0.0, vmax=1.0)
 
-segments_all = []
-segment_values = []
+branch_cmap = plt.get_cmap('RdBu')
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'], dtype=float)
     if line.shape[0] < 2:
@@ -1322,27 +1325,23 @@ for branch in branches['features']:
 
     branch_value = np.nanmax(branch_acc_values) if branch_acc_values else np.nan
     
-    for i in range(line.shape[0] - 1):
-        x0, y0 = line[i, 0], line[i, 1]
-        x1, y1 = line[i + 1, 0], line[i + 1, 1]
-        segments_all.append([(x0, y0), (x1, y1)])
+    if np.isfinite(branch_value):
+        branch_color = branch_cmap(norm(branch_value))
+    else:
+        # fallback per rami senza valore disponibile nella griglia
+        branch_color = branch_cmap(norm(acc_min))
+        
+    # Disegno ogni ramo con un colore unico (uniforme lungo tutto il ramo),
+    # in linea con la prima rappresentazione della rete.
+    ax.plot(line[:, 0], line[:, 1], color=branch_color, linewidth=2.0)
 
-        segment_values.append(branch_value)
 
-
-segment_values = np.asarray(segment_values, dtype=float)
-lc = LineCollection(
-    segments_all,
-    cmap='RdBu',
-    norm=norm,
-    linewidths=2.0,
-)
-lc.set_array(np.where(np.isfinite(segment_values), segment_values, norm.vmin))
-ax.add_collection(lc)
+sm = plt.cm.ScalarMappable(norm=norm, cmap=branch_cmap)
+sm.set_array([acc_min, acc_max])
 
 divider = make_axes_locatable(ax)
 cax = divider.append_axes("right", size="4%", pad=0.1)
-cbar = fig.colorbar(lc, cax=cax)
+cbar = fig.colorbar(sm, cax=cax)
 cbar.set_label('Contributing area [km²]')
 
 plt.tight_layout()
