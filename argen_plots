@@ -1311,19 +1311,27 @@ for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'], dtype=float)
     if line.shape[0] < 2:
         continue
+    # Mantiene i rami come definiti da pysheds, assegnando però
+    # un solo colore per ramo in base al pixel più a valle.
+    # In pratica si usa la massima area contribuente lungo il ramo,
+    # che corrisponde al tratto downstream.
+    branch_acc_values = []
+    for x_pt, y_pt in line:
+        row_pt, col_pt = rowcol(grid.affine, x_pt, y_pt)
+        if 0 <= row_pt < acc_km2.shape[0] and 0 <= col_pt < acc_km2.shape[1]:
+            val = acc_km2[row_pt, col_pt]
+            if np.isfinite(val) and val > 0:
+                branch_acc_values.append(val)
+
+    branch_value = np.nanmax(branch_acc_values) if branch_acc_values else np.nan
+    
     for i in range(line.shape[0] - 1):
         x0, y0 = line[i, 0], line[i, 1]
         x1, y1 = line[i + 1, 0], line[i + 1, 1]
         segments_all.append([(x0, y0), (x1, y1)])
 
-        xm = 0.5 * (x0 + x1)
-        ym = 0.5 * (y0 + y1)
-        row, col = rowcol(grid.affine, xm, ym)
-        if 0 <= row < acc_km2.shape[0] and 0 <= col < acc_km2.shape[1]:
-            seg_val = acc_km2[row, col]
-        else:
-            seg_val = np.nan
-        segment_values.append(seg_val)
+        segment_values.append(branch_value)
+
 
 segment_values = np.asarray(segment_values, dtype=float)
 lc = LineCollection(
@@ -1341,7 +1349,6 @@ cbar = fig.colorbar(lc, cax=cax)
 cbar.set_label('Contributing area [km²]')
 
 plt.tight_layout()
-
 #%% Impostazioni distribuzione pixel lungo i rami
 # I parametri sono definiti nella sezione di configurazione iniziale.
 # Rasterizza la rete per identificare i pixel appartenenti a ciascun ramo.
