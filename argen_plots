@@ -11,6 +11,7 @@ import array
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+from matplotlib.patches import Patch
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
@@ -1065,7 +1066,7 @@ ax.contour(
     y_coords,
     catch_bool,
     levels=[0.5],
-    colors='dodgerblue',
+    colors='red',
     linewidths=1.8,
 )
 
@@ -1078,7 +1079,7 @@ ax.imshow(
     cmap=colors.ListedColormap([(1.0, 0.0, 0.0, 0.35)]),
     zorder=4,
 )
-ax.scatter(
+outlet_scatter = ax.scatter(
     [x_snap],
     [y_snap],
     s=45,
@@ -1089,12 +1090,18 @@ ax.scatter(
     zorder=6,
     label='Outlet section',
 )
+basin_extension_legend = Patch(
+    facecolor=(1.0, 0.0, 0.0, 0.35),
+    edgecolor='red',
+    linewidth=1.5,
+    label='Basin extension',
+)
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower right')
 add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
-ax.legend(loc='upper right')
+ax.legend(handles=[outlet_scatter, basin_extension_legend], loc='upper right')
 plt.tight_layout()
 plt.show()
 
@@ -1105,14 +1112,6 @@ dem_im = ax.imshow(
     extent=grid.extent,
     cmap='terrain',
     origin='upper',
-)
-ax.contour(
-    x_coords,
-    y_coords,
-    catch_bool,
-    levels=[0.5],
-    colors='dodgerblue',
-    linewidths=1.8,
 )
 if (
     stations_in_catchment
@@ -1128,7 +1127,7 @@ if (
         edgecolors='black',
         linewidth=0.6,
         zorder=6,
-        label='Discharge stations in catchment',
+        label='Flow measuring stations',
     )
     _annotate_station_labels(
         ax,
@@ -1194,19 +1193,32 @@ plt.show()
 
 # Flow directions (no outlet section)
 fig, ax = plt.subplots(figsize=(8, 6))
+fdir_view = grid.view(fdir)
+
+# D8 codes ordered clockwise from East.
+d8_code_to_sector = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4, 32: 5, 64: 6, 128: 7}
+sector_labels = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
+
+fdir_sector = np.full(fdir_view.shape, np.nan, dtype='float32')
+for code, sector_idx in d8_code_to_sector.items():
+    fdir_sector[fdir_view == code] = sector_idx
+
+fdir_cmap = plt.get_cmap('viridis', len(sector_labels))
 fdir_im = ax.imshow(
-    grid.view(fdir),
+    fdir_sector,
     extent=grid.extent,
-    cmap='viridis',
+    cmap=fdir_cmap,
     origin='upper',
+    vmin=-0.5,
+    vmax=len(sector_labels) - 0.5,
 )
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
-cbar = add_vertical_colorbar(fig, ax, fdir_im, 'Flow direction (D8 code)')
-d8_codes = [64, 128, 1, 2, 4, 8, 16, 32]
-cbar.set_ticks(d8_codes)
+cbar = add_vertical_colorbar(fig, ax, fdir_im, 'Flow direction')
+cbar.set_ticks(np.arange(len(sector_labels)))
+cbar.set_ticklabels(sector_labels)
 
 # Flow accumulation (no outlet section)
 fig, ax = plt.subplots(figsize=(8, 6))
