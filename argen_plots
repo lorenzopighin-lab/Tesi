@@ -2535,36 +2535,79 @@ def plot_selected_pixel_catchment(
     xmin, ymin, xmax, ymax = rasterio.transform.array_bounds(h, w, transform_view)
 
     fig, ax = plt.subplots(figsize=(7, 7))
-    if dem_view is not None and dem_view.shape == mask_i.shape:
-        ax.imshow(dem_view, extent=(xmin, xmax, ymin, ymax), origin="upper", cmap="gray")
-
+    
+    # Sfondo grigio del bacino principale.
     ax.imshow(
-        np.where(catch, 1, np.nan),
+        np.where(catch, 0.75, np.nan),
         extent=(xmin, xmax, ymin, ymax),
         origin="upper",
-        alpha=0.25,
+        cmap="gray",
+        vmin=0.0,
+        vmax=1.0,
+        interpolation="nearest",
+        zorder=1,
     )
+    
+    # Area contribuente della sezione selezionata.
     ax.imshow(
         np.where(mask_i, 1, np.nan),
         extent=(xmin, xmax, ymin, ymax),
         origin="upper",
+        cmap="Purples",
+        vmin=0.0,
+        vmax=1.0,
+        interpolation="nearest",
+        zorder=2,
     )
+    
+    # Rete drenante colorata come nel plot per area contribuente.
+    acc_km2 = (grid.view(acc).astype(float) * PIXEL_AREA_M2) / 1e6
+    valid_acc = acc_km2[np.isfinite(acc_km2) & (acc_km2 > 0)]
+    if valid_acc.size:
+        norm = colors.Normalize(
+            vmin=float(np.nanmin(valid_acc)),
+            vmax=float(np.nanmax(valid_acc)),
+        )
+    else:
+        norm = colors.Normalize(vmin=0.0, vmax=1.0)
+
+    branch_cmap = plt.get_cmap("RdBu")
 
     for branch in branches["features"]:
-        line = np.asarray(branch["geometry"]["coordinates"])
-        plt.plot(line[:, 0], line[:, 1], alpha=0.5)
+        line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+        if line.shape[0] < 2:
+            continue
+
+        branch_acc_values = []
+        for x_pt, y_pt in line:
+            row_pt, col_pt = rowcol(grid.affine, x_pt, y_pt)
+            if 0 <= row_pt < acc_km2.shape[0] and 0 <= col_pt < acc_km2.shape[1]:
+                value = acc_km2[row_pt, col_pt]
+                if np.isfinite(value) and value > 0:
+                    branch_acc_values.append(value)
+
+        branch_value = np.nanmax(branch_acc_values) if branch_acc_values else np.nan
+        branch_color = branch_cmap(norm(branch_value)) if np.isfinite(branch_value) else "#777777"
+        ax.plot(
+            line[:, 0],
+            line[:, 1],
+            color=branch_color,
+            linewidth=1.7,
+            alpha=1.0,
+            zorder=3,
+        )
 
     if station_coords is not None and station_coords.size:
         ax.scatter(
             station_coords[:, 0],
             station_coords[:, 1],
-            s=22,
+            s=40,
             marker="^",
-            c="orange",
+            c="darkblue",
             edgecolors="k",
             linewidths=0.3,
             zorder=6,
-            label="Pixel stazioni",
+            label="Flow measuring stations",
         )
         station_label_records = []
         if catchment_points:
@@ -2578,7 +2621,14 @@ def plot_selected_pixel_catchment(
                 station_label_records.append(
                     {"station_id": station_id, "lon": x_coord, "lat": y_coord}
                 )
-        _annotate_station_labels(ax, station_label_records)
+        _annotate_station_labels(
+            ax,
+            station_label_records,
+            station_offsets={
+                "DE110220": (0, -12),  # sotto all'indicatore
+                "DE111230": (-38, 0),  # a sinistra dell'indicatore
+            },
+        )
 
     catchment_label = catchment_ids[index]
     selected_point = next(
@@ -2596,7 +2646,8 @@ def plot_selected_pixel_catchment(
                 facecolor="yellow",
                 edgecolor="k",
                 linewidth=0.6,
-                label=f"pixel {catchment_label}",
+                label="_nolegend_",
+                zorder=7,
             )
 
     ax.set_xlim(xmin, xmax)
@@ -2625,7 +2676,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_1003"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
