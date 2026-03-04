@@ -703,6 +703,7 @@ def _annotate_station_labels(
     text_color="black",
     fontsize=8,
     preferred_offsets=None,
+    station_offsets=None,
 ):
     """Annota i nomi delle stazioni su un asse Matplotlib.
 
@@ -750,6 +751,13 @@ def _annotate_station_labels(
         candidate_offsets = preferred + [
             offset for offset in candidate_offsets if offset not in preferred
         ]
+        
+    station_offsets = {
+        str(station_id).strip(): tuple(offset)
+        for station_id, offset in (station_offsets or {}).items()
+        if str(station_id).strip()
+    }
+
 
     def _create_annotation(lon, lat, text, offset):
         return ax.annotate(
@@ -769,6 +777,13 @@ def _annotate_station_labels(
         label = (rec.get("station_id") or "").strip()
         if not label or lon is None or lat is None:
             continue
+        
+        custom_offset = station_offsets.get(label)
+        station_candidate_offsets = (
+            [custom_offset] + [offset for offset in candidate_offsets if offset != custom_offset]
+            if custom_offset is not None
+            else candidate_offsets
+        )
 
         if renderer is None:
             ax.figure.canvas.draw()
@@ -777,7 +792,7 @@ def _annotate_station_labels(
 
         text_obj = None
         bbox = None
-        for offset in candidate_offsets:
+        for offset in station_candidate_offsets:
             text_obj = _create_annotation(lon, lat, label, offset)
             bbox = text_obj.get_window_extent(renderer=renderer).expanded(1.08, 1.1)
             is_outside_axes = (
@@ -794,7 +809,7 @@ def _annotate_station_labels(
             break
 
         if text_obj is None:
-            text_obj = _create_annotation(lon, lat, label, candidate_offsets[0])
+            text_obj = _create_annotation(lon, lat, label, station_candidate_offsets[0])
             bbox = text_obj.get_window_extent(renderer=renderer).expanded(1.08, 1.1)
             placed_bboxes.append(bbox)
 
@@ -2285,17 +2300,16 @@ if station_snapped_coords.size:
         zorder=6,
         label="flow measuring stations",
     )
-    for (x_coord, y_coord), station_id in zip(station_snapped_coords, station_labels):
-        if station_id:
-            ax.annotate(
-                station_id,
-                xy=(x_coord, y_coord),
-                xytext=(4, 4),
-                textcoords="offset points",
-                fontsize=8,
-                color="black",
-                zorder=7,
-            )
+    station_label_records = [
+        {"station_id": station_id, "lon": x_coord, "lat": y_coord}
+        for (x_coord, y_coord), station_id in zip(station_snapped_coords, station_labels)
+        if station_id
+    ]
+    _annotate_station_labels(
+        ax,
+        station_label_records,
+        station_offsets={"DE111230": (0, -12)},
+    )
 ax.set_xlabel("longitude")
 ax.set_ylabel("latitude")
 ax.legend(loc="lower left")
