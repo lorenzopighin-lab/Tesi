@@ -2570,7 +2570,7 @@ def plot_selected_pixel_catchment(
             line[:, 0],
             line[:, 1],
             linewidth=1.5,
-            alpha=1,
+            alpha=0.8,
             zorder=3,
         )
 
@@ -2603,7 +2603,7 @@ def plot_selected_pixel_catchment(
             station_label_records,
             station_offsets={
                 "DE110220": (0, -12),  # sotto all'indicatore
-                "DE111230": (-38, 0),  # a sinistra dell'indicatore
+                "DE111230": (-47, -5),  # a sinistra dell'indicatore
             },
         )
 
@@ -2623,7 +2623,7 @@ def plot_selected_pixel_catchment(
             facecolor="yellow",
             edgecolor="k",
             linewidth=0.6,
-            label=f"Selected section ({catchment_label})",
+            label="Section 1003",
             zorder=7,
         )
 
