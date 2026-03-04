@@ -1123,7 +1123,7 @@ if (
         discharge_lats,
         s=45,
         marker='^',
-        facecolors='#f9c74f',
+        facecolors='dodgerblue',
         edgecolors='black',
         linewidth=0.6,
         zorder=6,
@@ -1277,6 +1277,8 @@ fig, ax = plt.subplots(figsize=(8.5,6.5))
 plt.xlim(grid.bbox[0], grid.bbox[2])
 plt.ylim(grid.bbox[1], grid.bbox[3])
 ax.set_aspect('equal')
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
 
 for branch in branches['features']:
@@ -2249,9 +2251,9 @@ if station_snapped_coords.size:
     ax.scatter(
         station_snapped_coords[:, 0],
         station_snapped_coords[:, 1],
-        s=22,
+        s=80,
         marker='^',
-        c="darkblue",
+        c="dodgerblue",
         edgecolors="k",
         linewidths=0.3,
         zorder=6,
