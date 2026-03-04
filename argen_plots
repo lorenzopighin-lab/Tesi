@@ -2510,9 +2510,8 @@ def plot_catchment_i(catchment_id,
 
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
-    ax.set_title(f"Area contribuente {catchment_label} su bacino principale")
-    add_scale_bar(ax, transform_view, location='lower left')
-    ax.legend(loc="best")
+    add_scale_bar(ax, transform_view, location='upper left')
+    ax.legend(loc="lower left")
     plt.show()
     
 def plot_selected_pixel_catchment(
@@ -2604,9 +2603,8 @@ def plot_selected_pixel_catchment(
     ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    ax.set_title(f"Area contribuente {catchment_label} con stazioni sulla rete")
-    add_scale_bar(ax, transform_view, location="lower left")
-    ax.legend(loc="best")
+    add_scale_bar(ax, transform_view, location="upper left")
+    ax.legend(loc="lower left")
     plt.show()
 
     
