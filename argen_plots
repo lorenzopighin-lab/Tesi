@@ -2240,12 +2240,12 @@ if selected_snapped_coords.size:
     ax.scatter(
         selected_snapped_coords[:, 0],
         selected_snapped_coords[:, 1],
-        s=10,
+        s=15,
         c="red",
         edgecolors="k",
         linewidths=0.3,
         zorder=5,
-        label="Pixel intermedi",
+        label="Test sections",
     )
 if station_snapped_coords.size:
     ax.scatter(
@@ -2257,12 +2257,11 @@ if station_snapped_coords.size:
         edgecolors="k",
         linewidths=0.3,
         zorder=6,
-        label="Pixel stazioni",
+        label="Flow measuring stations",
     )
-_ = plt.title(
-    f" Selected pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
-    size=14,
-)
+ax.set_xlabel("longitude")
+ax.set_ylabel("latitude")
+ax.legend(loc="best")
 #%%% plot rete con solo le stazioni
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
 plt.xlim(grid.bbox[0], grid.bbox[2])
