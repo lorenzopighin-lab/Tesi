@@ -2280,12 +2280,11 @@ if station_snapped_coords.size:
         edgecolors="k",
         linewidths=0.3,
         zorder=6,
-        label="Pixel stazioni",
+        label="flow measuring stations",
     )
-_ = plt.title(
-    f"Station pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
-    size=14,
-)
+ax.set_xlabel("longitude")
+ax.set_ylabel("latitude")
+ax.legend(loc="lower left")
 
 #%%% plot rete con solo i pixel selezionati
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
