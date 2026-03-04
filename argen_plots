@@ -2225,6 +2225,9 @@ selected_points = [
 station_snapped_coords = np.array(
     [pt["snapped_coord"] for pt in station_points], dtype=float
 )
+station_labels = [
+    str(pt.get("station_id") or "").strip() for pt in station_points
+]
 selected_snapped_coords = np.array(
     [pt["snapped_coord"] for pt in selected_points], dtype=float
 )
@@ -2282,6 +2285,17 @@ if station_snapped_coords.size:
         zorder=6,
         label="flow measuring stations",
     )
+    for (x_coord, y_coord), station_id in zip(station_snapped_coords, station_labels):
+        if station_id:
+            ax.annotate(
+                station_id,
+                xy=(x_coord, y_coord),
+                xytext=(4, 4),
+                textcoords="offset points",
+                fontsize=8,
+                color="black",
+                zorder=7,
+            )
 ax.set_xlabel("longitude")
 ax.set_ylabel("latitude")
 ax.legend(loc="lower left")
