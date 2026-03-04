@@ -492,12 +492,13 @@ def plot_rho_pixels_on_network(
                    station_lons,
                    station_lats,
                    s=40,
-                   c="red",
                    marker="^",
+                   c="red",
                    edgecolors="k",
-                   linewidths=0.4,
+                   linewidths=0.3,
+                   label="Flow measuring stations",                
                    zorder=7,
-                   label="Stazioni",
+                   label="Flow measuring stations",
                )
                ax.legend(loc="upper right", fontsize=9, frameon=True)
             return scatter_plot
