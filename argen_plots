@@ -2560,21 +2560,17 @@ def plot_selected_pixel_catchment(
         zorder=2,
     )
     
-    # Rete drenante colorata per ramo (coerente con il plot "plot branches").
-    branch_palette = sns.color_palette("husl", n_colors=max(1, len(branches["features"])))
-
-    for branch_idx, branch in enumerate(branches["features"]):
+    # Rete drenante con la stessa logica usata in ``plot_catchment_i``.
+    for branch in branches["features"]:
         line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
         if line.shape[0] < 2:
             continue
 
-        branch_color = branch_palette[branch_idx % len(branch_palette)]
         ax.plot(
             line[:, 0],
             line[:, 1],
-            color=branch_color,
-            linewidth=1.7,
-            alpha=1.0,
+            linewidth=1.5,
+            alpha=1,
             zorder=3,
         )
 
@@ -2622,7 +2618,7 @@ def plot_selected_pixel_catchment(
             ax.scatter(
             [x_sel],
             [y_sel],
-            s=45,
+            s=30,
             marker="o",
             facecolor="yellow",
             edgecolor="k",
