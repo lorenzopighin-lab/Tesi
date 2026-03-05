@@ -505,6 +505,9 @@ def plot_rho_pixels_on_network(
     def _plot_rho_network_colored(ax, *, column: str):
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
         cmap = plt.cm.viridis
+        
+        def _node_key(point_xy: np.ndarray, decimals: int = 7) -> tuple[float, float]:
+            return (round(float(point_xy[0]), decimals), round(float(point_xy[1]), decimals))
 
         branch_points: dict[int, list[tuple[float, float]]] = {}
         for _, row in merged.dropna(subset=[column]).iterrows():
@@ -529,6 +532,86 @@ def plot_rho_pixels_on_network(
             if best_branch is None:
                 continue
             branch_points.setdefault(best_branch, []).append((best_distance, float(row[column])))
+            
+        # Valore rappresentativo per ogni ramo con rho disponibile.
+        branch_representative_value: dict[int, float] = {}
+        for branch_idx, series in branch_points.items():
+            ordered = sorted(series, key=lambda item: item[0])
+            if ordered:
+                # Usiamo il valore più a monte del ramo (primo punto) come
+                # colore di riferimento quando un ramo figlio non ha punti rho.
+                branch_representative_value[branch_idx] = float(ordered[0][1])
+
+        # Costruisce la connettività tra rami tramite i nodi estremi.
+        branch_neighbors: dict[int, set[int]] = {
+            idx: set() for idx in range(len(branches_data["features"]))
+        }
+        start_neighbors: dict[int, set[int]] = {
+            idx: set() for idx in range(len(branches_data["features"]))
+        }
+        node_to_branches: dict[tuple[float, float], list[int]] = {}
+
+        for branch_idx, branch in enumerate(branches_data["features"]):
+            line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+            if line.ndim != 2 or line.shape[0] < 2:
+                continue
+            start_key = _node_key(line[0])
+            end_key = _node_key(line[-1])
+            node_to_branches.setdefault(start_key, []).append(branch_idx)
+            node_to_branches.setdefault(end_key, []).append(branch_idx)
+
+        for branch_ids in node_to_branches.values():
+            unique_ids = list(dict.fromkeys(branch_ids))
+            for idx in unique_ids:
+                for other_idx in unique_ids:
+                    if idx == other_idx:
+                        continue
+                    branch_neighbors[idx].add(other_idx)
+
+        for branch_idx, branch in enumerate(branches_data["features"]):
+            line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+            if line.ndim != 2 or line.shape[0] < 2:
+                continue
+            start_key = _node_key(line[0])
+            for neighbor_idx in node_to_branches.get(start_key, []):
+                if neighbor_idx != branch_idx:
+                    start_neighbors[branch_idx].add(neighbor_idx)
+
+        # Per i rami senza punti rho, eredita il colore dal ramo di origine
+        # (prima cercando connessioni sul nodo iniziale, poi sul resto dei
+        # rami connessi).
+        for branch_idx in range(len(branches_data["features"])):
+            if branch_idx in branch_representative_value:
+                continue
+
+            inherited_value = None
+            visited: set[int] = {branch_idx}
+            queue = list(start_neighbors.get(branch_idx, set()))
+            queue.extend(
+                neighbor for neighbor in branch_neighbors.get(branch_idx, set())
+                if neighbor not in queue
+            )
+
+            while queue:
+                candidate = queue.pop(0)
+                if candidate in visited:
+                    continue
+                visited.add(candidate)
+
+                candidate_value = branch_representative_value.get(candidate)
+                if candidate_value is not None:
+                    inherited_value = candidate_value
+                    break
+
+                # priorità ai rami che insistono sul nodo iniziale
+                next_candidates = list(start_neighbors.get(candidate, set()))
+                next_candidates.extend(branch_neighbors.get(candidate, set()))
+                for nxt in next_candidates:
+                    if nxt not in visited and nxt not in queue:
+                        queue.append(nxt)
+
+            if inherited_value is not None:
+                branch_representative_value[branch_idx] = inherited_value
 
         for branch_idx, branch in enumerate(branches_data["features"]):
             line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
@@ -542,7 +625,9 @@ def plot_rho_pixels_on_network(
             series = branch_points.get(branch_idx, [])
             series = sorted(series, key=lambda item: item[0])
             if not series:
-                ax.plot(line[:, 0], line[:, 1], color="0.55", linewidth=1.2, zorder=3)
+                inherited = branch_representative_value.get(branch_idx)
+                fallback_color = cmap(norm(inherited)) if inherited is not None else "0.55"
+                ax.plot(line[:, 0], line[:, 1], color=fallback_color, linewidth=1.2, zorder=3)
                 continue
 
             boundaries = [0.0] + [dist for dist, _ in series] + [total_length]
