@@ -11,7 +11,6 @@ import array
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -425,7 +424,167 @@ def plot_rho_pixels_on_network(
         ("rho_1_max", "Rho_max"),
         ("rho_1_mean", "Rho_mean"),
     ]
+    
+    def _line_distances(line_coords: np.ndarray) -> np.ndarray:
+        if line_coords.shape[0] <= 1:
+            return np.zeros(line_coords.shape[0], dtype=float)
+        deltas = np.diff(line_coords, axis=0)
+        segment_lengths = np.hypot(deltas[:, 0], deltas[:, 1])
+        return np.concatenate(([0.0], np.cumsum(segment_lengths)))
 
+    def _point_projection_distance(line_coords: np.ndarray, point_xy: np.ndarray) -> float:
+        if line_coords.shape[0] <= 1:
+            return 0.0
+        cumulative = _line_distances(line_coords)
+        best_distance = 0.0
+        best_sq = np.inf
+        for idx in range(line_coords.shape[0] - 1):
+            p0 = line_coords[idx]
+            p1 = line_coords[idx + 1]
+            seg = p1 - p0
+            seg_len2 = float(np.dot(seg, seg))
+            if seg_len2 == 0:
+                projection = p0
+                t = 0.0
+            else:
+                t = float(np.dot(point_xy - p0, seg) / seg_len2)
+                t = min(1.0, max(0.0, t))
+                projection = p0 + t * seg
+            sq = float(np.dot(point_xy - projection, point_xy - projection))
+            if sq < best_sq:
+                best_sq = sq
+                segment_len = cumulative[idx + 1] - cumulative[idx]
+                best_distance = cumulative[idx] + t * segment_len
+        return best_distance
+
+    def _split_line_between_distances(
+        line_coords: np.ndarray,
+        cumulative: np.ndarray,
+        start_distance: float,
+        end_distance: float,
+    ) -> np.ndarray | None:
+        total_length = cumulative[-1] if cumulative.size else 0.0
+        if total_length <= 0:
+            return None
+        start_distance = float(np.clip(start_distance, 0.0, total_length))
+        end_distance = float(np.clip(end_distance, 0.0, total_length))
+        if end_distance <= start_distance:
+            return None
+
+        def _point_at_distance(distance: float) -> np.ndarray:
+            return _line_point_at_distance(line_coords, cumulative, distance)
+
+        points = [_point_at_distance(start_distance)]
+        inner_mask = (cumulative > start_distance) & (cumulative < end_distance)
+        if inner_mask.any():
+            points.extend(line_coords[inner_mask])
+        points.append(_point_at_distance(end_distance))
+        if len(points) < 2:
+            return None
+        return np.asarray(points, dtype=float)
+
+    def _line_point_at_distance(
+        line_coords: np.ndarray,
+        cumulative: np.ndarray,
+        distance: float,
+    ) -> np.ndarray:
+        total_length = cumulative[-1] if cumulative.size else 0.0
+        if distance <= 0 or total_length <= 0:
+            return line_coords[0]
+        if distance >= total_length:
+            return line_coords[-1]
+        idx = int(np.searchsorted(cumulative, distance, side="right") - 1)
+        idx = min(max(0, idx), line_coords.shape[0] - 2)
+        seg_start = cumulative[idx]
+        seg_end = cumulative[idx + 1]
+        if seg_end <= seg_start:
+            return line_coords[idx].copy()
+        frac = (distance - seg_start) / (seg_end - seg_start)
+        return line_coords[idx] + frac * (line_coords[idx + 1] - line_coords[idx])
+
+    def _plot_rho_network_colored(ax, *, column: str):
+        norm = colors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = plt.cm.viridis
+
+        branch_points: dict[int, list[tuple[float, float]]] = {}
+        for _, row in merged.dropna(subset=[column]).iterrows():
+            point_xy = np.asarray([row["x"], row["y"]], dtype=float)
+            best_branch = None
+            best_sq = np.inf
+            best_distance = 0.0
+
+            for branch_idx, branch in enumerate(branches_data["features"]):
+                line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+                if line.ndim != 2 or line.shape[0] < 2:
+                    continue
+                proj_distance = _point_projection_distance(line, point_xy)
+                cumulative = _line_distances(line)
+                snap_xy = _line_point_at_distance(line, cumulative, proj_distance)
+                sq = float(np.dot(point_xy - snap_xy, point_xy - snap_xy))
+                if sq < best_sq:
+                    best_sq = sq
+                    best_branch = branch_idx
+                    best_distance = proj_distance
+
+            if best_branch is None:
+                continue
+            branch_points.setdefault(best_branch, []).append((best_distance, float(row[column])))
+
+        for branch_idx, branch in enumerate(branches_data["features"]):
+            line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+            if line.ndim != 2 or line.shape[0] < 2:
+                continue
+            cumulative = _line_distances(line)
+            total_length = cumulative[-1] if cumulative.size else 0.0
+            if total_length <= 0:
+                continue
+
+            series = branch_points.get(branch_idx, [])
+            series = sorted(series, key=lambda item: item[0])
+            if not series:
+                ax.plot(line[:, 0], line[:, 1], color="0.55", linewidth=1.2, zorder=3)
+                continue
+
+            boundaries = [0.0] + [dist for dist, _ in series] + [total_length]
+            values = [value for _, value in series]
+            values.append(values[-1])
+
+            for idx in range(len(values)):
+                segment = _split_line_between_distances(
+                    line,
+                    cumulative,
+                    boundaries[idx],
+                    boundaries[idx + 1],
+                )
+                if segment is None:
+                    continue
+                ax.plot(
+                    segment[:, 0],
+                    segment[:, 1],
+                    color=cmap(norm(values[idx])),
+                    linewidth=2.0,
+                    solid_capstyle="round",
+                    zorder=4,
+                )
+
+        if station_lons is not None and station_lats is not None and len(station_lons):
+            ax.scatter(
+                station_lons,
+                station_lats,
+                s=40,
+                marker="^",
+                c="red",
+                edgecolors="k",
+                linewidths=0.3,
+                label="Flow measuring stations",
+                zorder=7,
+            )
+            ax.legend(loc="lower left", fontsize=9, frameon=True)
+
+        sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array([])
+        return sm
+    
     vmin = RHO_COLOR_SCALE_MIN
     vmax = RHO_COLOR_SCALE_MAX
     if PROMPT_RHO_COLOR_SCALE:
@@ -450,6 +609,19 @@ def plot_rho_pixels_on_network(
             else:
                 print("Inserire due valori (min,max) per la scala colori.")
 
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    ax.set_xlim(grid.bbox[0], grid.bbox[2])
+    ax.set_ylim(grid.bbox[1], grid.bbox[3])
+    ax.set_aspect("equal")
+    rho_network = _plot_rho_network_colored(ax, column="rho_1_max")
+    cbar = add_vertical_colorbar(fig, ax, rho_network, "Rho_max")
+    cbar.ax.tick_params(labelsize=9)
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    add_scale_bar(ax, grid.affine, location="upper left")
+    ax.set_title("Rho_max sulla rete canali", size=13)
+    plt.show()
+
     def _plot_single_series(
         points_df: pd.DataFrame,
         *,
@@ -460,17 +632,6 @@ def plot_rho_pixels_on_network(
         if points_df.empty:
             print(f"Nessun pixel disponibile per il plot {label}{title_suffix}.")
             return
-        test_sections_handle = Line2D(
-            [0],
-            [0],
-            marker="o",
-            linestyle="",
-            markerfacecolor=plt.cm.viridis(0.75),
-            markeredgecolor="k",
-            markeredgewidth=0.4,
-            markersize=7,
-            label="Test sections",
-        )
         def _plot_network(ax, *, with_dem: bool = False):
             if with_dem and dem_background is not None and dem_extent is not None:
                 ax.imshow(
@@ -499,9 +660,9 @@ def plot_rho_pixels_on_network(
                 zorder=6,
             )
             
-            legend_handles = [test_sections_handle]
+            legend_handles = []
             if station_lons is not None and station_lats is not None and len(station_lons):
-               station_scatter = ax.scatter(
+                station_scatter = ax.scatter(
                     station_lons,
                     station_lats,
                     s=40,
@@ -512,9 +673,11 @@ def plot_rho_pixels_on_network(
                     label="Flow measuring stations",
                     zorder=7,
                 )
-            legend_handles.insert(0, station_scatter)
+            legend_handles.append(station_scatter)
 
-            ax.legend(handles=legend_handles, loc="lower left", fontsize=9, frameon=True)
+            if legend_handles:
+                ax.legend(handles=legend_handles, loc="lower left", fontsize=9, frameon=True)
+
             return scatter_plot
         
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
