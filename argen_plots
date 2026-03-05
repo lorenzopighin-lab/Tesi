@@ -11,6 +11,7 @@ import array
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -459,6 +460,17 @@ def plot_rho_pixels_on_network(
         if points_df.empty:
             print(f"Nessun pixel disponibile per il plot {label}{title_suffix}.")
             return
+        test_sections_handle = Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="",
+            markerfacecolor=plt.cm.viridis(0.75),
+            markeredgecolor="k",
+            markeredgewidth=0.4,
+            markersize=7,
+            label="Test sections",
+        )
         def _plot_network(ax, *, with_dem: bool = False):
             if with_dem and dem_background is not None and dem_extent is not None:
                 ax.imshow(
@@ -486,22 +498,25 @@ def plot_rho_pixels_on_network(
                 linewidths=0.3,
                 zorder=6,
             )
-
+            
+            legend_handles = [test_sections_handle]
             if station_lons is not None and station_lats is not None and len(station_lons):
-               ax.scatter(
-                   station_lons,
-                   station_lats,
-                   s=40,
-                   marker="^",
-                   c="red",
-                   edgecolors="k",
-                   linewidths=0.3,
-                   label="Flow measuring stations",                
-                   zorder=7,
-                   label="Flow measuring stations",
-               )
-               ax.legend(loc="upper right", fontsize=9, frameon=True)
+               station_scatter = ax.scatter(
+                    station_lons,
+                    station_lats,
+                    s=40,
+                    marker="^",
+                    c="red",
+                    edgecolors="k",
+                    linewidths=0.3,
+                    label="Flow measuring stations",
+                    zorder=7,
+                )
+            legend_handles.insert(0, station_scatter)
+
+            ax.legend(handles=legend_handles, loc="lower left", fontsize=9, frameon=True)
             return scatter_plot
+        
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
         ax.set_xlim(grid.bbox[0], grid.bbox[2])
         ax.set_ylim(grid.bbox[1], grid.bbox[3])
@@ -509,13 +524,17 @@ def plot_rho_pixels_on_network(
         scatter = _plot_network(ax, with_dem=False)   
         cbar = add_vertical_colorbar(fig, ax, scatter, label)
         cbar.ax.tick_params(labelsize=9)
-        ax.set_title(
-            (
-                f"{label}{title_suffix} su rete canali "
-                f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
-            ),
-            size=13,
-        )
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        add_scale_bar(ax, grid.affine, location="upper left")
+        if column == "rho_1_mean":
+            ax.set_title(
+                (
+                    f"{label}{title_suffix} su rete canali "
+                    f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                ),
+                size=13,
+            )
         plt.show()
         
         if dem_background is not None and dem_extent is not None:
@@ -536,22 +555,20 @@ def plot_rho_pixels_on_network(
             dem_cbar = fig.colorbar(ax.images[0], cax=elevation_cax)
             dem_cbar.set_label("Elevation")
             dem_cbar.ax.tick_params(labelsize=9)
+            ax.set_xlabel("Longitude")
+            ax.set_ylabel("Latitude")
+            add_scale_bar(ax, grid.affine, location="upper left")
+
 
             if column == "rho_1_mean":
                 dem_title = (              
                         f"Rho_mean{title_suffix} su DEM "
                         f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"              
                 )
-            else:
-                dem_title = (
-                    f"Rho_max{title_suffix} su DEM "
-                        f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
-                )
-            
             ax.set_title(
-                dem_title,
-                size=13,
-            )
+                    dem_title,
+                    size=13,
+                )
             plt.show()
             
     for column, label in plot_specs:
