@@ -1,1 +1,72 @@
+# -*- coding: utf-8 -*-
+"""
+Script per creare boxplot di Rho_max per stagione.
+
+Input CSV richiesto:
+- colonna Season con valori: AUTUMN, WINTER, SPRING, SUMMER, YEAR
+- colonna Rho_max con valori numerici tra 0 e 1
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# CONFIGURAZIONE UTENTE
+# =========================
+CSV_PATH = "C:/Users/loren/Desktop/Tesi_magi/codes/Season/rho_season.csv"
+OUTPUT_PLOT_PATH = "C:/Users/loren/Desktop/Tesi_magi/codes/Season/boxplot_rho_max.png"
+
+
+SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER", "YEAR"]
+
+
+def main() -> None:
+    df = pd.read_csv(CSV_PATH)
+
+    required_columns = {"Season", "Rho_max"}
+    if not required_columns.issubset(df.columns):
+        missing = required_columns - set(df.columns)
+        raise ValueError(f"Colonne mancanti nel CSV: {sorted(missing)}")
+
+    df = df.copy()
+    df["Season"] = df["Season"].astype(str).str.upper().str.strip()
+    df["Rho_max"] = pd.to_numeric(df["Rho_max"], errors="coerce")
+    df = df.dropna(subset=["Season", "Rho_max"])
+
+    # Mantiene solo le stagioni richieste nell'ordine desiderato
+    df = df[df["Season"].isin(SEASON_ORDER)]
+    data = [df.loc[df["Season"] == season, "Rho_max"].values for season in SEASON_ORDER]
+
+    # Controllo presenza dati
+    if not any(len(values) > 0 for values in data):
+        raise ValueError("Nessun dato valido trovato per le stagioni richieste.")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.boxplot(
+        data,
+        labels=SEASON_ORDER,
+        whis=(0, 100),       # baffi da minimo a massimo
+        showmeans=False,     # non mostrare la media
+        showfliers=False,    # non mostrare punti fuori range
+        patch_artist=True,
+        boxprops={"facecolor": "#1f9ac9", "edgecolor": "#0d4966", "linewidth": 1.2},
+        whiskerprops={"color": "#0d4966", "linewidth": 1.2},
+        capprops={"color": "#0d4966", "linewidth": 1.2},
+        medianprops={"color": "#1a1a1a", "linewidth": 1.5},
+    )
+
+    ax.set_title("rho_max", fontsize=20, pad=20)
+    ax.set_ylabel("Rho_max")
+    ax.set_ylim(0, 1.05)
+    ax.grid(axis="y", alpha=0.25)
+
+    fig.tight_layout()
+    fig.savefig(OUTPUT_PLOT_PATH, dpi=300)
+    plt.close(fig)
+
+    print(f"Grafico salvato in: {OUTPUT_PLOT_PATH}")
+
+
+if __name__ == "__main__":
+    main()
 
