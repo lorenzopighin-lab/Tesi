@@ -812,6 +812,11 @@ def plot_rho_pixels_on_network(
                         f"Rho_mean{title_suffix} su DEM "
                         f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"              
                 )
+            else:
+                dem_title = (
+                    f"Rho_max{title_suffix} su DEM "
+                    f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+                )
             ax.set_title(
                     dem_title,
                     size=13,
