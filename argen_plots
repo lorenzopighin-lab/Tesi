@@ -704,7 +704,6 @@ def plot_rho_pixels_on_network(
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     add_scale_bar(ax, grid.affine, location="upper left")
-    ax.set_title("Rho_max sulla rete canali", size=13)
     plt.show()
 
     def _plot_single_series(
