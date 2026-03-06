@@ -49,15 +49,15 @@ def main() -> None:
         showmeans=False,     # non mostrare la media
         showfliers=False,    # non mostrare punti fuori range
         patch_artist=True,
-        boxprops={"facecolor": "#1f9ac9", "edgecolor": "#0d4966", "linewidth": 1.2},
-        whiskerprops={"color": "#0d4966", "linewidth": 1.2},
-        capprops={"color": "#0d4966", "linewidth": 1.2},
-        medianprops={"color": "#1a1a1a", "linewidth": 1.5},
+        boxprops={"facecolor": "#0b4f8a", "edgecolor": "#000000", "linewidth": 1.2},
+        whiskerprops={"color": "#000000", "linewidth": 1.2},
+        capprops={"color": "#000000", "linewidth": 1.2},
+        medianprops={"color": "#000000", "linewidth": 1.5},
     )
 
     ax.set_title("rho_max", fontsize=20, pad=20)
     ax.set_ylabel("Rho_max")
-    ax.set_ylim(0, 1.05)
+    ax.set_ylim(0.75, 1)
     ax.grid(axis="y", alpha=0.25)
 
     fig.tight_layout()
@@ -69,4 +69,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
