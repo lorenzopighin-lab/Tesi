@@ -413,7 +413,240 @@ def plot_rho_pixels_on_network(
             station_lats = np.asarray(
                 [rec.get("lat") for rec in filtered_stations], dtype=float
             )
+    
+    def _line_distances(line_coords: np.ndarray) -> np.ndarray:
+        if line_coords.shape[0] < 2:
+            return np.array([0.0], dtype=float)
+        deltas = np.diff(line_coords, axis=0)
+        seg_lengths = np.sqrt((deltas ** 2).sum(axis=1))
+        return np.concatenate(([0.0], np.cumsum(seg_lengths)))
 
+    def _point_projection_distance(line_coords: np.ndarray, point_xy: np.ndarray) -> float:
+        if line_coords.shape[0] < 2:
+            return 0.0
+        cumulative = _line_distances(line_coords)
+        best_distance = 0.0
+        best_sq = np.inf
+        for idx in range(line_coords.shape[0] - 1):
+            start = line_coords[idx]
+            end = line_coords[idx + 1]
+            segment = end - start
+            seg_len_sq = float(np.dot(segment, segment))
+            if seg_len_sq <= 0:
+                continue
+            t = float(np.dot(point_xy - start, segment) / seg_len_sq)
+            t = min(1.0, max(0.0, t))
+            projection = start + t * segment
+            sq = float(np.dot(point_xy - projection, point_xy - projection))
+            if sq < best_sq:
+                best_sq = sq
+                best_distance = cumulative[idx] + t * math.sqrt(seg_len_sq)
+        return best_distance
+
+    def _line_point_at_distance(
+        line_coords: np.ndarray,
+        cumulative: np.ndarray,
+        distance: float,
+    ) -> np.ndarray:
+        if line_coords.shape[0] == 0:
+            return np.array([np.nan, np.nan], dtype=float)
+        if line_coords.shape[0] == 1:
+            return line_coords[0].copy()
+        distance = min(max(float(distance), 0.0), float(cumulative[-1]))
+        if distance <= 0:
+            return line_coords[0].copy()
+        if distance >= cumulative[-1]:
+            return line_coords[-1].copy()
+        idx = int(np.searchsorted(cumulative, distance, side="right") - 1)
+        idx = max(0, min(idx, line_coords.shape[0] - 2))
+        seg_start = cumulative[idx]
+        seg_end = cumulative[idx + 1]
+        if seg_end <= seg_start:
+            return line_coords[idx].copy()
+        frac = (distance - seg_start) / (seg_end - seg_start)
+        return line_coords[idx] + frac * (line_coords[idx + 1] - line_coords[idx])
+
+    def _split_line_between_distances(
+        line_coords: np.ndarray,
+        cumulative: np.ndarray,
+        start_dist: float,
+        end_dist: float,
+    ):
+        total_length = float(cumulative[-1]) if cumulative.size else 0.0
+        start_dist = max(0.0, min(float(start_dist), total_length))
+        end_dist = max(0.0, min(float(end_dist), total_length))
+        if end_dist <= start_dist:
+            return None
+
+        def _point_at(distance: float) -> np.ndarray:
+            return _line_point_at_distance(line_coords, cumulative, distance)
+
+        points = [_point_at(start_dist)]
+        inner_mask = (cumulative > start_dist) & (cumulative < end_dist)
+        if np.any(inner_mask):
+            points.extend(line_coords[inner_mask])
+        points.append(_point_at(end_dist))
+        return np.asarray(points)
+
+    def _plot_rho_network_colored(ax, *, column: str):
+        norm = colors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = plt.cm.viridis
+
+        def _node_key(point_xy: np.ndarray, decimals: int = 7) -> tuple[float, float]:
+            return (round(float(point_xy[0]), decimals), round(float(point_xy[1]), decimals))
+
+        branch_points: dict[int, list[tuple[float, float]]] = {}
+        for _, row in merged.dropna(subset=[column]).iterrows():
+            point_xy = np.asarray([row["x"], row["y"]], dtype=float)
+            best_branch = None
+            best_sq = np.inf
+            best_distance = 0.0
+
+            for branch_idx, branch in enumerate(branches_data["features"]):
+                line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+                if line.ndim != 2 or line.shape[0] < 2:
+                    continue
+                proj_distance = _point_projection_distance(line, point_xy)
+                cumulative = _line_distances(line)
+                snap_xy = _line_point_at_distance(line, cumulative, proj_distance)
+                sq = float(np.dot(point_xy - snap_xy, point_xy - snap_xy))
+                if sq < best_sq:
+                    best_sq = sq
+                    best_branch = branch_idx
+                    best_distance = proj_distance
+
+            if best_branch is None:
+                continue
+            branch_points.setdefault(best_branch, []).append((best_distance, float(row[column])))
+
+        branch_representative_value: dict[int, float] = {}
+        for branch_idx, series in branch_points.items():
+            ordered = sorted(series, key=lambda item: item[0])
+            if ordered:
+                branch_representative_value[branch_idx] = float(ordered[0][1])
+
+        branch_neighbors: dict[int, set[int]] = {
+            idx: set() for idx in range(len(branches_data["features"]))
+        }
+        start_neighbors: dict[int, set[int]] = {
+            idx: set() for idx in range(len(branches_data["features"]))
+        }
+        node_to_branches: dict[tuple[float, float], list[int]] = {}
+
+        for branch_idx, branch in enumerate(branches_data["features"]):
+            line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+            if line.ndim != 2 or line.shape[0] < 2:
+                continue
+            start_key = _node_key(line[0])
+            end_key = _node_key(line[-1])
+            node_to_branches.setdefault(start_key, []).append(branch_idx)
+            node_to_branches.setdefault(end_key, []).append(branch_idx)
+
+        for branch_ids in node_to_branches.values():
+            unique_ids = list(dict.fromkeys(branch_ids))
+            for idx in unique_ids:
+                for other_idx in unique_ids:
+                    if idx == other_idx:
+                        continue
+                    branch_neighbors[idx].add(other_idx)
+
+        for branch_idx, branch in enumerate(branches_data["features"]):
+            line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+            if line.ndim != 2 or line.shape[0] < 2:
+                continue
+            start_key = _node_key(line[0])
+            for neighbor_idx in node_to_branches.get(start_key, []):
+                if neighbor_idx != branch_idx:
+                    start_neighbors[branch_idx].add(neighbor_idx)
+
+        for branch_idx in range(len(branches_data["features"])):
+            if branch_idx in branch_representative_value:
+                continue
+
+            inherited_value = None
+            visited: set[int] = {branch_idx}
+            queue = list(start_neighbors.get(branch_idx, set()))
+            queue.extend(
+                neighbor for neighbor in branch_neighbors.get(branch_idx, set())
+                if neighbor not in queue
+            )
+
+            while queue:
+                candidate = queue.pop(0)
+                if candidate in visited:
+                    continue
+                visited.add(candidate)
+
+                candidate_value = branch_representative_value.get(candidate)
+                if candidate_value is not None:
+                    inherited_value = candidate_value
+                    break
+
+                next_candidates = list(start_neighbors.get(candidate, set()))
+                next_candidates.extend(branch_neighbors.get(candidate, set()))
+                for nxt in next_candidates:
+                    if nxt not in visited and nxt not in queue:
+                        queue.append(nxt)
+
+            if inherited_value is not None:
+                branch_representative_value[branch_idx] = inherited_value
+
+        for branch_idx, branch in enumerate(branches_data["features"]):
+            line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
+            if line.ndim != 2 or line.shape[0] < 2:
+                continue
+            cumulative = _line_distances(line)
+            total_length = cumulative[-1] if cumulative.size else 0.0
+            if total_length <= 0:
+                continue
+
+            series = sorted(branch_points.get(branch_idx, []), key=lambda item: item[0])
+            if not series:
+                inherited = branch_representative_value.get(branch_idx)
+                fallback_color = cmap(norm(inherited)) if inherited is not None else "0.55"
+                ax.plot(line[:, 0], line[:, 1], color=fallback_color, linewidth=1.2, zorder=3)
+                continue
+
+            boundaries = [0.0] + [dist for dist, _ in series] + [total_length]
+            values = [value for _, value in series]
+            values.append(values[-1])
+
+            for idx in range(len(values)):
+                segment = _split_line_between_distances(
+                    line,
+                    cumulative,
+                    boundaries[idx],
+                    boundaries[idx + 1],
+                )
+                if segment is None:
+                    continue
+                ax.plot(
+                    segment[:, 0],
+                    segment[:, 1],
+                    color=cmap(norm(values[idx])),
+                    linewidth=2.0,
+                    solid_capstyle="round",
+                    zorder=4,
+                )
+
+        if station_lons is not None and station_lats is not None and len(station_lons):
+            ax.scatter(
+                station_lons,
+                station_lats,
+                s=40,
+                marker="^",
+                c="red",
+                edgecolors="k",
+                linewidths=0.3,
+                label="Stazioni",
+                zorder=7,
+            )
+            ax.legend(loc="lower left", fontsize=9, frameon=True)
+
+        sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array([])
+        return sm
+    
     plot_specs = [
         ("rho_1_max", "Rho_max"),
         ("rho_1_mean", "Rho_mean"),
@@ -442,7 +675,20 @@ def plot_rho_pixels_on_network(
                     vmax = None
             else:
                 print("Inserire due valori (min,max) per la scala colori.")
-
+                
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    ax.set_xlim(grid.bbox[0], grid.bbox[2])
+    ax.set_ylim(grid.bbox[1], grid.bbox[3])
+    ax.set_aspect("equal")
+    rho_network = _plot_rho_network_colored(ax, column="rho_1_max")
+    cbar = plt.colorbar(rho_network, ax=ax, label="Rho_max")
+    cbar.ax.tick_params(labelsize=9)
+    ax.set_title(
+        f"Rho_max su rete canali (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
+        size=13,
+    )
+    plt.show()
+    
     def _plot_single_series(
         points_df: pd.DataFrame,
         *,
