@@ -102,9 +102,8 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf = 0.869991645
-  #si plottano i valori <inf e >sup
-rho_max_sup = 0.869991645
+rho_max_inf = 0.893 #si plottano i valori <inf e >sup
+rho_max_sup = 0.967
 
 rho_mean_inf = 0.832074078
 rho_mean_sup = 0.832074078
@@ -502,15 +501,22 @@ def plot_rho_pixels_on_network(
         frac = (distance - seg_start) / (seg_end - seg_start)
         return line_coords[idx] + frac * (line_coords[idx + 1] - line_coords[idx])
 
-    def _plot_rho_network_colored(ax, *, column: str):
+    def _plot_rho_network_colored(
+        ax,
+        *,
+        column: str,
+        source_df: pd.DataFrame | None = None,
+        non_matching_color: str = "0.55",
+    ):
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
         cmap = plt.cm.viridis
+        points_source = merged if source_df is None else source_df
         
         def _node_key(point_xy: np.ndarray, decimals: int = 7) -> tuple[float, float]:
             return (round(float(point_xy[0]), decimals), round(float(point_xy[1]), decimals))
 
         branch_points: dict[int, list[tuple[float, float]]] = {}
-        for _, row in merged.dropna(subset=[column]).iterrows():
+        for _, row in points_source.dropna(subset=[column]).iterrows():
             point_xy = np.asarray([row["x"], row["y"]], dtype=float)
             best_branch = None
             best_sq = np.inf
@@ -626,7 +632,7 @@ def plot_rho_pixels_on_network(
             series = sorted(series, key=lambda item: item[0])
             if not series:
                 inherited = branch_representative_value.get(branch_idx)
-                fallback_color = cmap(norm(inherited)) if inherited is not None else "0.55"
+                fallback_color = cmap(norm(inherited)) if inherited is not None else non_matching_color
                 ax.plot(line[:, 0], line[:, 1], color=fallback_color, linewidth=1.2, zorder=3)
                 continue
 
@@ -701,6 +707,41 @@ def plot_rho_pixels_on_network(
     rho_network = _plot_rho_network_colored(ax, column="rho_1_max")
     cbar = add_vertical_colorbar(fig, ax, rho_network, "Rho_max")
     cbar.ax.tick_params(labelsize=9)
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    add_scale_bar(ax, grid.affine, location="upper left")
+    plt.show()
+    
+    rho_min = min(rho_max_inf, rho_max_sup)
+    rho_max = max(rho_max_inf, rho_max_sup)
+    rho_max_in_range = merged[
+        merged["rho_1_max"].between(rho_min, rho_max, inclusive="both")
+    ]
+
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    ax.set_xlim(grid.bbox[0], grid.bbox[2])
+    ax.set_ylim(grid.bbox[1], grid.bbox[3])
+    ax.set_aspect("equal")
+    rho_max_network_filtered = _plot_rho_network_colored(
+        ax,
+        column="rho_1_max",
+        source_df=rho_max_in_range,
+        non_matching_color="0.7",
+    )
+    cbar = add_vertical_colorbar(
+        fig,
+        ax,
+        rho_max_network_filtered,
+        f"Rho_max in [{rho_min:.6f}, {rho_max:.6f}]",
+    )
+    cbar.ax.tick_params(labelsize=9)
+    ax.set_title(
+        (
+            "Rete canali colorata con Rho_max entro limiti "
+            f"[{rho_min:.6f}, {rho_max:.6f}]"
+        ),
+        size=13,
+    )
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     add_scale_bar(ax, grid.affine, location="upper left")
