@@ -1706,6 +1706,21 @@ for branch in branches['features']:
         continue
     ax.plot(line[:, 0], line[:, 1], color='deepskyblue', linewidth=1.5, zorder=2)
 
+if stations_in_catchment:
+    discharge_lons = np.asarray([rec["lon"] for rec in stations_in_catchment], dtype="float32")
+    discharge_lats = np.asarray([rec["lat"] for rec in stations_in_catchment], dtype="float32")
+    station_scatter = ax.scatter(
+        discharge_lons,
+        discharge_lats,
+        s=45,
+        marker='o',
+        facecolors='red',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=6,
+        label='Flow measuring stations',
+    )
+    ax.legend(handles=[station_scatter], loc='upper right', fontsize=9, frameon=True)
 #%%%plot branches colorate per area contribuente (km²)
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
 ax.set_xlim(grid.bbox[0], grid.bbox[2])
