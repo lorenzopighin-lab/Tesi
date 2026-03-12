@@ -2630,7 +2630,7 @@ ax.set_aspect('equal')
 
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
-    plt.plot(line[:, 0], line[:, 1])
+    plt.plot(line[:, 0], line[:, 1], color="deepskyblue")
 
 station_points = [
     pt
