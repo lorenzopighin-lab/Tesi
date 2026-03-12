@@ -1677,8 +1677,30 @@ add_scale_bar(ax, grid.affine, location='lower left')
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
     plt.plot(line[:, 0], line[:, 1])
-    
 
+#%%%plot catchment grigio + rete azzurra
+fig, ax = plt.subplots(figsize=(8.5, 6.5))
+ax.set_xlim(grid.bbox[0], grid.bbox[2])
+ax.set_ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+add_scale_bar(ax, grid.affine, location='lower left')
+
+ax.imshow(
+    np.where(catch_view, 1.0, np.nan),
+    extent=grid.extent,
+    cmap='Greys',
+    alpha=0.45,
+    origin='upper',
+    zorder=1,
+)
+
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'], dtype=float)
+    if line.shape[0] < 2:
+        continue
+    ax.plot(line[:, 0], line[:, 1], color='deepskyblue', linewidth=1.5, zorder=2)
 
 #%%%plot branches colorate per area contribuente (km²)
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
