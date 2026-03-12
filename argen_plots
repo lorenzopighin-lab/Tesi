@@ -1570,7 +1570,7 @@ _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
-add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
+add_vertical_colorbar(fig, ax, dem_im, 'Elevation (m)')
 if legend_handles:
     legend = ax.legend(
         handles=legend_handles,
