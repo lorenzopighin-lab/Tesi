@@ -102,7 +102,7 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf = 0.893 #si plottano i valori <inf e >sup
+rho_max_inf = 0.894 #si plottano i valori <inf e >sup
 rho_max_sup = 0.967
 
 rho_mean_inf = 0.832074078
@@ -507,6 +507,7 @@ def plot_rho_pixels_on_network(
         column: str,
         source_df: pd.DataFrame | None = None,
         non_matching_color: str = "0.55",
+        inherit_missing_values: bool = True,
     ):
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
         cmap = plt.cm.viridis
@@ -585,39 +586,41 @@ def plot_rho_pixels_on_network(
 
         # Per i rami senza punti rho, eredita il colore dal ramo di origine
         # (prima cercando connessioni sul nodo iniziale, poi sul resto dei
-        # rami connessi).
-        for branch_idx in range(len(branches_data["features"])):
-            if branch_idx in branch_representative_value:
-                continue
-
-            inherited_value = None
-            visited: set[int] = {branch_idx}
-            queue = list(start_neighbors.get(branch_idx, set()))
-            queue.extend(
-                neighbor for neighbor in branch_neighbors.get(branch_idx, set())
-                if neighbor not in queue
-            )
-
-            while queue:
-                candidate = queue.pop(0)
-                if candidate in visited:
+        # rami connessi). Questa logica può essere disattivata nei grafici
+        # a soglia per mantenere in grigio tutte le sezioni escluse.
+        if inherit_missing_values:
+            for branch_idx in range(len(branches_data["features"])):
+                if branch_idx in branch_representative_value:
                     continue
-                visited.add(candidate)
 
-                candidate_value = branch_representative_value.get(candidate)
-                if candidate_value is not None:
-                    inherited_value = candidate_value
-                    break
+                inherited_value = None
+                visited: set[int] = {branch_idx}
+                queue = list(start_neighbors.get(branch_idx, set()))
+                queue.extend(
+                    neighbor for neighbor in branch_neighbors.get(branch_idx, set())
+                    if neighbor not in queue
+                )
 
-                # priorità ai rami che insistono sul nodo iniziale
-                next_candidates = list(start_neighbors.get(candidate, set()))
-                next_candidates.extend(branch_neighbors.get(candidate, set()))
-                for nxt in next_candidates:
-                    if nxt not in visited and nxt not in queue:
-                        queue.append(nxt)
+                while queue:
+                    candidate = queue.pop(0)
+                    if candidate in visited:
+                        continue
+                    visited.add(candidate)
 
-            if inherited_value is not None:
-                branch_representative_value[branch_idx] = inherited_value
+                    candidate_value = branch_representative_value.get(candidate)
+                    if candidate_value is not None:
+                        inherited_value = candidate_value
+                        break
+
+                 # priorità ai rami che insistono sul nodo iniziale
+                    next_candidates = list(start_neighbors.get(candidate, set()))
+                    next_candidates.extend(branch_neighbors.get(candidate, set()))
+                    for nxt in next_candidates:
+                        if nxt not in visited and nxt not in queue:
+                            queue.append(nxt)
+
+                if inherited_value is not None:
+                    branch_representative_value[branch_idx] = inherited_value
 
         for branch_idx, branch in enumerate(branches_data["features"]):
             line = np.asarray(branch["geometry"]["coordinates"], dtype=float)
@@ -738,7 +741,8 @@ def plot_rho_pixels_on_network(
             ax,
             column="rho_1_max",
             source_df=filtered_df,
-            non_matching_color="0.7",
+            non_matching_color="0.8",
+            inherit_missing_values=False,
         )
         cbar = add_vertical_colorbar(
             fig,
@@ -2953,7 +2957,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_DE110220"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_935"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2970,7 +2974,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_1003"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_935"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
