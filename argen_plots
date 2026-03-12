@@ -1572,7 +1572,7 @@ ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
 add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
 if legend_handles:
-    ax.legend(handles=legend_handles, loc='upper left')
+    ax.legend(handles=legend_handles, loc='upper left', frameon=True, framealpha=1.0, facecolor='white', edgecolor='black')
 plt.tight_layout()
 plt.show()
 
