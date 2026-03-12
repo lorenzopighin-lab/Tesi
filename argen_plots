@@ -1624,7 +1624,6 @@ row_min, row_max = int(catch_rows.min()), int(catch_rows.max())
 col_min, col_max = int(catch_cols.min()), int(catch_cols.max())
 xmin, ymax = rasterio.transform.xy(grid.affine, row_min, col_min, offset='ul')
 xmax, ymin = rasterio.transform.xy(grid.affine, row_max, col_max, offset='lr')
-
 acc_cmap = colors.LinearSegmentedColormap.from_list(
     'acc_white_cyan_blue',
     ['#ffffff', '#7fd3ff', '#003b8e'],
