@@ -37,7 +37,7 @@ SNAP_ACCUMULATION_THRESHOLD = 8000
 BRANCH_ACCUMULATION_THRESHOLD = 1000
 STATION_SNAP_ACCUMULATION_THRESHOLD = 15000
 MIN_ACCUMULATION_KM2 = 0.8
-
+PLOT_FRAME_MARGIN_FRACTION = 0.03
 
 # --- Parametri dimensionali ---
 # Il DEM è espresso in coordinate geografiche ma sappiamo che le celle
@@ -1680,8 +1680,12 @@ for branch in branches['features']:
 
 #%%%plot catchment grigio + rete azzurra
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
-ax.set_xlim(grid.bbox[0], grid.bbox[2])
-ax.set_ylim(grid.bbox[1], grid.bbox[3])
+x_min, x_max = grid.bbox[0], grid.bbox[2]
+y_min, y_max = grid.bbox[1], grid.bbox[3]
+x_pad = (x_max - x_min) * PLOT_FRAME_MARGIN_FRACTION
+y_pad = (y_max - y_min) * PLOT_FRAME_MARGIN_FRACTION
+ax.set_xlim(x_min - x_pad, x_max + x_pad)
+ax.set_ylim(y_min - y_pad, y_max + y_pad)
 ax.set_aspect('equal')
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
@@ -2664,18 +2668,6 @@ if selected_snapped_coords.size:
         linewidths=0.3,
         zorder=5,
         label="Test sections",
-    )
-if station_snapped_coords.size:
-    ax.scatter(
-        station_snapped_coords[:, 0],
-        station_snapped_coords[:, 1],
-        s=80,
-        marker='^',
-        c="dodgerblue",
-        edgecolors="k",
-        linewidths=0.3,
-        zorder=6,
-        label="Flow measuring stations",
     )
 ax.set_xlabel("longitude")
 ax.set_ylabel("latitude")
