@@ -1630,8 +1630,13 @@ acc_cmap = colors.LinearSegmentedColormap.from_list(
     ['#ffffff', '#7fd3ff', '#003b8e'],
 )
 
-valid_acc_in_catch = acc_in_catch[np.isfinite(acc_in_catch) & (acc_in_catch > 0)]
-acc_norm = colors.LogNorm(vmin=max(1, float(valid_acc_in_catch.min())), vmax=float(valid_acc_in_catch.max()))
+valid_acc_in_catch = acc_in_catch[np.isfinite(acc_in_catch)]
+acc_norm = None
+if valid_acc_in_catch.size:
+    acc_norm = colors.Normalize(
+        vmin=float(valid_acc_in_catch.min()),
+        vmax=float(valid_acc_in_catch.max()),
+    )
 acc_im = ax.imshow(
     acc_in_catch,
     extent=grid.extent,
