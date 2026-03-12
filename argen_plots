@@ -1527,6 +1527,55 @@ ax.legend(loc='upper center')
 plt.tight_layout()
 plt.show()
 
+# DEM + discharge and rain stations (without labels)
+fig, ax = plt.subplots(figsize=(8, 6))
+dem_im = ax.imshow(
+    inflated_dem_masked,
+    extent=grid.extent,
+    cmap='terrain',
+    origin='upper',
+)
+legend_handles = []
+if stations_in_catchment:
+    discharge_lons = np.asarray([rec["lon"] for rec in stations_in_catchment], dtype="float32")
+    discharge_lats = np.asarray([rec["lat"] for rec in stations_in_catchment], dtype="float32")
+    discharge_scatter = ax.scatter(
+        discharge_lons,
+        discharge_lats,
+        s=45,
+        marker='o',
+        facecolors='red',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=6,
+        label='Flow measuring stations',
+    )
+    legend_handles.append(discharge_scatter)
+if rain_stations_with_data:
+    rain_lons = np.asarray([rec["lon"] for rec in rain_stations_with_data], dtype="float32")
+    rain_lats = np.asarray([rec["lat"] for rec in rain_stations_with_data], dtype="float32")
+    rain_scatter = ax.scatter(
+        rain_lons,
+        rain_lats,
+        s=50,
+        marker='o',
+        facecolors='orange',
+        edgecolors='black',
+        linewidth=0.6,
+        zorder=7,
+        label='Available rain stations',
+    )
+    legend_handles.append(rain_scatter)
+_set_extent_limits(ax, grid.extent)
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+add_scale_bar(ax, grid.affine, location='lower left')
+add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
+if legend_handles:
+    ax.legend(handles=legend_handles, loc='upper left')
+plt.tight_layout()
+plt.show()
+
 # Flow directions (no outlet section)
 fig, ax = plt.subplots(figsize=(8, 6))
 fdir_view = grid.view(fdir)
