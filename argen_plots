@@ -373,6 +373,8 @@ def plot_rho_pixels_on_network(
     pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
     rho_max_col = _find_column(rho_table, ["rho_1_max"])
     rho_mean_col = _find_column(rho_table, ["rho_1_mean"])
+    f_lambda_col = _find_column(rho_table, ["F_lambda", "f_lambda"])
+    f_alpha_col = _find_column(rho_table, ["F_alpha", "f_alpha"])
 
     missing_cols = [
         name
@@ -384,17 +386,23 @@ def plot_rho_pixels_on_network(
             "Colonne mancanti nel CSV rho: " + ", ".join(missing_cols)
         )
 
-    rho_values = rho_table[[pixel_id_col, rho_max_col, rho_mean_col]].copy()
+    rho_values = rho_table[
+        [pixel_id_col, rho_max_col, rho_mean_col, f_lambda_col, f_alpha_col]
+    ].copy()
     rho_values = rho_values.rename(
         columns={
             pixel_id_col: "pixel_id",
             rho_max_col: "rho_1_max",
             rho_mean_col: "rho_1_mean",
+            f_lambda_col: "F_lambda",
+            f_alpha_col: "F_alpha",
         }
     )
     rho_values["pixel_id"] = rho_values["pixel_id"].apply(_normalize_pixel_id)
     rho_values["rho_1_max"] = pd.to_numeric(rho_values["rho_1_max"], errors="coerce")
     rho_values["rho_1_mean"] = pd.to_numeric(rho_values["rho_1_mean"], errors="coerce")
+    rho_values["F_lambda"] = pd.to_numeric(rho_values["F_lambda"], errors="coerce")
+    rho_values["F_alpha"] = pd.to_numeric(rho_values["F_alpha"], errors="coerce")
     rho_values = rho_values.dropna(subset=["pixel_id"])
     rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
 
@@ -896,6 +904,42 @@ def plot_rho_pixels_on_network(
             label=label,
             title_suffix=title_suffix,
         )
+        
+    f_branch_plots = [
+        ("F_lambda", "F_lambda"),
+        ("F_alpha", "F_alpha"),
+    ]
+    for column, cbar_label in f_branch_plots:
+        valid_values = merged[column].dropna()
+        if valid_values.empty:
+            print(f"Nessun valore disponibile per il plot {cbar_label}.")
+            continue
+
+        vmin = float(valid_values.min())
+        vmax = float(valid_values.max())
+        if np.isclose(vmin, vmax):
+            epsilon = max(abs(vmin) * 1e-6, 1e-9)
+            vmin -= epsilon
+            vmax += epsilon
+
+        fig, ax = plt.subplots(figsize=(8.5, 6.5))
+        ax.set_xlim(grid.bbox[0], grid.bbox[2])
+        ax.set_ylim(grid.bbox[1], grid.bbox[3])
+        ax.set_aspect("equal")
+        f_network = _plot_rho_network_colored(ax, column=column)
+        cbar = add_vertical_colorbar(fig, ax, f_network, cbar_label)
+        cbar.ax.tick_params(labelsize=9)
+        ax.set_title(
+            (
+                f"Rete canali colorata con {cbar_label} "
+                f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
+            ),
+            size=13,
+        )
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        add_scale_bar(ax, grid.affine, location="upper left")
+        plt.show()
     
 def _load_station_points(meta_path: Path):
     if not meta_path:
