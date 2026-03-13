@@ -8,6 +8,7 @@ Created on Mon Feb  2 18:56:20 2026
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import pandas as pd
 
 INPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\DE11140\model_2_final\spacing\model_output_threshold_3p0_20260202_195035.csv")
@@ -21,6 +22,20 @@ OUTPUT_PIXEL_COLUMN = "Pixel_id"
 OUTPUT_STATION_COLUMN = "Station_id"
 OUTPUT_MAX_RHO_COLUMN = "rho_1_max"
 OUTPUT_MEAN_RHO_COLUMN = "rho_1_mean"
+
+def _normalize_pixel_id(value: object) -> str:
+    """Normalizza l'identificativo pixel senza imporre limiti sul numero di cifre."""
+    text = str(value).strip()
+    if not text:
+        return text
+
+    match = re.search(r"^catchment_(.+)$", text, flags=re.IGNORECASE)
+    suffix = match.group(1).strip() if match else text
+    try:
+        numeric_id = int(float(suffix))
+    except (TypeError, ValueError):
+        return text
+    return f"catchment_{numeric_id}"
 
 def compute_max_rho_per_pixel(
     data: pd.DataFrame,
@@ -40,8 +55,10 @@ def compute_max_rho_per_pixel(
         )
 
     working = data[[pixel_column, station_column, rho_column]].copy()
+    working[pixel_column] = working[pixel_column].map(_normalize_pixel_id)
     working[rho_column] = pd.to_numeric(working[rho_column], errors="coerce")
     working = working.dropna(subset=[rho_column])
+    working = working[working[pixel_column].astype(str).str.strip() != ""]
 
     if working.empty:
         return pd.DataFrame(
