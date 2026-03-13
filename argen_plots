@@ -427,10 +427,14 @@ def plot_rho_pixels_on_network(
             station_lats = np.asarray(
                 [rec.get("lat") for rec in filtered_stations], dtype=float
             )
-
+    label_rho_max = r"$\rho_{\max}$"
+    label_rho_mean = r"$\rho_{\mathrm{mean}}$"
+    label_f_lambda = r"$F_{\lambda}$"
+    label_f_alpha = r"$F_{\alpha}$"
+    
     plot_specs = [
-        ("rho_1_max", "Rho_max"),
-        ("rho_1_mean", "Rho_mean"),
+        ("rho_1_max", label_rho_max),
+        ("rho_1_mean", label_rho_mean),
     ]
     
     def _line_distances(line_coords: np.ndarray) -> np.ndarray:
@@ -688,36 +692,15 @@ def plot_rho_pixels_on_network(
         sm.set_array([])
         return sm
     
-    vmin = RHO_COLOR_SCALE_MIN
-    vmax = RHO_COLOR_SCALE_MAX
-    if PROMPT_RHO_COLOR_SCALE:
-        try:
-            user_limits = input(
-                "Inserisci i limiti min,max per la scala colori rho "
-                "(invio per automatico): "
-            )
-        except EOFError:
-            user_limits = ""
-        user_limits = user_limits.strip()
-        if user_limits:
-            tokens = [part for part in user_limits.replace(";", ",").replace(" ", ",").split(",") if part]
-            if len(tokens) >= 2:
-                try:
-                    vmin = float(tokens[0])
-                    vmax = float(tokens[1])
-                except ValueError:
-                    print("Valori scala colori non validi: uso scala automatica.")
-                    vmin = None
-                    vmax = None
-            else:
-                print("Inserire due valori (min,max) per la scala colori.")
+    vmin = 0.8
+    vmax = 1.0
 
     fig, ax = plt.subplots(figsize=(8.5, 6.5))
     ax.set_xlim(grid.bbox[0], grid.bbox[2])
     ax.set_ylim(grid.bbox[1], grid.bbox[3])
     ax.set_aspect("equal")
     rho_network = _plot_rho_network_colored(ax, column="rho_1_max")
-    cbar = add_vertical_colorbar(fig, ax, rho_network, "Rho_max")
+    cbar = add_vertical_colorbar(fig, ax, rho_network, label_rho_max)
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
@@ -731,14 +714,14 @@ def plot_rho_pixels_on_network(
     threshold_plots = [
         (
             rho_max_lower,
-            f"Rho_max < {rho_max_inf:.6f}",
-            f"Rete canali colorata con Rho_max < {rho_max_inf:.6f}",
+            f"{label_rho_max} < {rho_max_inf:.6f}",
+            f"Rete canali colorata con {label_rho_max} < {rho_max_inf:.6f}",
         ),
         (
             rho_max_upper,
-            f"Rho_max > {rho_max_sup:.6f}",
-            f"Rete canali colorata con Rho_max > {rho_max_sup:.6f}",
-        ),
+            f"{label_rho_max} > {rho_max_sup:.6f}",
+            f"Rete canali colorata con {label_rho_max} > {rho_max_sup:.6f}",
+            ),
     ]
 
     for filtered_df, cbar_label, title in threshold_plots:
@@ -849,8 +832,8 @@ def plot_rho_pixels_on_network(
         _plot_single_series(merged, column=column, label=label)
 
     threshold_filters = [
-        ("rho_1_max", "Rho_max", ">", rho_max_sup, f" > {rho_max_sup}"),
-        ("rho_1_max", "Rho_max", "<", rho_max_inf, f" < {rho_max_inf}"),
+        ("rho_1_max", label_rho_max, ">", rho_max_sup, f" > {rho_max_sup}"),
+        ("rho_1_max", label_rho_max, "<", rho_max_inf, f" < {rho_max_inf}"),
     ]
 
     for column, label, operator, threshold, title_suffix in threshold_filters:
@@ -866,8 +849,8 @@ def plot_rho_pixels_on_network(
         )
         
     f_branch_plots = [
-        ("F_lambda", "F_lambda"),
-        ("F_alpha", "F_alpha"),
+        ("F_lambda", label_f_lambda),
+        ("F_alpha", label_f_alpha),
     ]
     for column, cbar_label in f_branch_plots:
         valid_values = merged[column].dropna()
@@ -875,12 +858,8 @@ def plot_rho_pixels_on_network(
             print(f"Nessun valore disponibile per il plot {cbar_label}.")
             continue
 
-        vmin = float(valid_values.min())
-        vmax = float(valid_values.max())
-        if np.isclose(vmin, vmax):
-            epsilon = max(abs(vmin) * 1e-6, 1e-9)
-            vmin -= epsilon
-            vmax += epsilon
+        vmin = 0.8
+        vmax = 1.0
 
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
         ax.set_xlim(grid.bbox[0], grid.bbox[2])
