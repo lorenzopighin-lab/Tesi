@@ -17,11 +17,15 @@ OUTPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\DE11140\mod
 PIXEL_COLUMN = "pixel_id"
 STATION_COLUMN = "station_id"
 RHO_COLUMN = "rho_1"
+F_LAMBDA_COLUMN = "F_lambda"
+F_ALPHA_COLUMN = "F_alpha"
 
 OUTPUT_PIXEL_COLUMN = "Pixel_id"
 OUTPUT_STATION_COLUMN = "Station_id"
 OUTPUT_MAX_RHO_COLUMN = "rho_1_max"
 OUTPUT_MEAN_RHO_COLUMN = "rho_1_mean"
+OUTPUT_F_LAMBDA_COLUMN = "F_lambda"
+OUTPUT_F_ALPHA_COLUMN = "F_alpha"
 
 def _normalize_pixel_id(value: object) -> str:
     """Normalizza l'identificativo pixel senza imporre limiti sul numero di cifre."""
@@ -43,10 +47,18 @@ def compute_max_rho_per_pixel(
     pixel_column: str = PIXEL_COLUMN,
     station_column: str = STATION_COLUMN,
     rho_column: str = RHO_COLUMN,
+    f_lambda_column: str = F_LAMBDA_COLUMN,
+    f_alpha_column: str = F_ALPHA_COLUMN,
 ) -> pd.DataFrame:
     missing = [
         col
-        for col in (pixel_column, station_column, rho_column)
+        for col in (
+            pixel_column,
+            station_column,
+            rho_column,
+            f_lambda_column,
+            f_alpha_column,
+        )
         if col not in data.columns
     ]
     if missing:
@@ -54,7 +66,9 @@ def compute_max_rho_per_pixel(
             "Missing columns in input CSV: " + ", ".join(missing)
         )
 
-    working = data[[pixel_column, station_column, rho_column]].copy()
+    working = data[
+        [pixel_column, station_column, rho_column, f_lambda_column, f_alpha_column]
+    ].copy()
     working[pixel_column] = working[pixel_column].map(_normalize_pixel_id)
     working[rho_column] = pd.to_numeric(working[rho_column], errors="coerce")
     working = working.dropna(subset=[rho_column])
@@ -67,11 +81,16 @@ def compute_max_rho_per_pixel(
                 OUTPUT_STATION_COLUMN,
                 OUTPUT_MAX_RHO_COLUMN,
                 OUTPUT_MEAN_RHO_COLUMN,
+                OUTPUT_F_LAMBDA_COLUMN,
+                OUTPUT_F_ALPHA_COLUMN,
             ]
         )
 
     idx = working.groupby(pixel_column)[rho_column].idxmax()
-    result = working.loc[idx, [pixel_column, station_column, rho_column]].copy()
+    result = working.loc[
+        idx,
+        [pixel_column, station_column, rho_column, f_lambda_column, f_alpha_column],
+    ].copy()
     mean_rho = (
         working.groupby(pixel_column, as_index=False)[rho_column]
         .mean()
@@ -83,6 +102,8 @@ def compute_max_rho_per_pixel(
             pixel_column: OUTPUT_PIXEL_COLUMN,
             station_column: OUTPUT_STATION_COLUMN,
             rho_column: OUTPUT_MAX_RHO_COLUMN,
+            f_lambda_column: OUTPUT_F_LAMBDA_COLUMN,
+            f_alpha_column: OUTPUT_F_ALPHA_COLUMN,
         }
     )
     result = result.sort_values(by=OUTPUT_PIXEL_COLUMN).reset_index(drop=True)
@@ -96,6 +117,8 @@ def run(
     pixel_column: str = PIXEL_COLUMN,
     station_column: str = STATION_COLUMN,
     rho_column: str = RHO_COLUMN,
+    f_lambda_column: str = F_LAMBDA_COLUMN,
+    f_alpha_column: str = F_ALPHA_COLUMN,
 ) -> Path:
     input_path = Path(input_csv)
     if not input_path.exists():
@@ -109,6 +132,8 @@ def run(
         pixel_column=pixel_column,
         station_column=station_column,
         rho_column=rho_column,
+        f_lambda_column=f_lambda_column,
+        f_alpha_column=f_alpha_column,
     )
     result.to_csv(output_path, index=False)
     print(result.to_string(index=False))
