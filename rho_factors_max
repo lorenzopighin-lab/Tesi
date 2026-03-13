@@ -5,21 +5,23 @@ Created on Fri Mar 13 10:54:07 2026
 @author: loren
 """
 from __future__ import annotations
-
+import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 
 # -*- coding: utf-8 -*-
 """
 Seleziona, per ogni pixel_id, la riga con rho_1 massimo e salva i campi richiesti.
+Genera anche un boxplot di F_lambda e F_alpha (min, Q1, mediana, Q3, max).
 """
 
 
 INPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\year\rho_factors.csv")
 OUTPUT_CSV = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\year\rho_factors_max.csv")
+PLOT_PATH = OUTPUT_CSV.with_name("rho_factors_max_boxplot.png")
 
 REQUIRED_COLUMNS = ("pixel_id", "station_id", "rho_1", "F_lambda", "F_alpha")
-
+PLOT_COLUMNS = ("F_lambda", "F_alpha")
 
 def compute_max_rho_rows(data: pd.DataFrame) -> pd.DataFrame:
     missing = [col for col in REQUIRED_COLUMNS if col not in data.columns]
@@ -42,7 +44,44 @@ def compute_max_rho_rows(data: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def run(input_csv: str | Path = INPUT_CSV, output_csv: str | Path = OUTPUT_CSV) -> Path:
+def _prepare_boxplot_data(data: pd.DataFrame) -> list[pd.Series]:
+    series_list: list[pd.Series] = []
+    for column in PLOT_COLUMNS:
+        numeric = pd.to_numeric(data[column], errors="coerce").dropna()
+        if numeric.empty:
+            raise ValueError(f"La colonna {column} non contiene valori numerici validi.")
+        series_list.append(numeric)
+    return series_list
+
+
+def save_boxplot(data: pd.DataFrame, plot_path: str | Path = PLOT_PATH) -> Path:
+    series_list = _prepare_boxplot_data(data)
+
+    output_path = Path(plot_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.boxplot(
+        series_list,
+        labels=[r"$F_{\lambda}$", r"$F_{\alpha}$"],
+        whis=(0, 100),
+        showfliers=False,
+    )
+    ax.set_ylabel("Value")
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+    return output_path
+
+
+def run(
+    input_csv: str | Path = INPUT_CSV,
+    output_csv: str | Path = OUTPUT_CSV,
+    plot_path: str | Path = PLOT_PATH,
+) -> tuple[Path, Path]:
     input_path = Path(input_csv)
     if not input_path.exists():
         raise FileNotFoundError(f"Non trovo il file: {input_path}")
@@ -53,10 +92,13 @@ def run(input_csv: str | Path = INPUT_CSV, output_csv: str | Path = OUTPUT_CSV) 
     data = pd.read_csv(input_path)
     result = compute_max_rho_rows(data)
     result.to_csv(output_path, index=False)
+    
+    boxplot_output_path = save_boxplot(result, plot_path)
 
     print(result.to_string(index=False))
     print(f"Tabella salvata in: {output_path}")
-    return output_path
+    print(f"Boxplot salvato in: {boxplot_output_path}")
+    return output_path, boxplot_output_path
 
 
 def main() -> None:
