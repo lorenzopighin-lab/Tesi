@@ -1617,7 +1617,10 @@ cbar.set_ticklabels(sector_labels)
 # Flow accumulation (no outlet section)
 fig, ax = plt.subplots(figsize=(8, 6))
 catch_mask = catch.astype(bool)
-acc_in_catch = np.where(catch_mask, acc, np.nan)
+pixel_area_km2 = PIXEL_AREA_M2 / 1_000_000.0
+min_contributing_area_km2 = 0.1
+min_acc_cells = min_contributing_area_km2 / pixel_area_km2
+acc_in_catch = np.where(catch_mask & (acc >= min_acc_cells), acc, np.nan)
 
 # Ritaglia il plot alla sola estensione del bacino.
 catch_rows, catch_cols = np.where(catch_mask)
@@ -1626,9 +1629,10 @@ col_min, col_max = int(catch_cols.min()), int(catch_cols.max())
 xmin, ymax = rasterio.transform.xy(grid.affine, row_min, col_min, offset='ul')
 xmax, ymin = rasterio.transform.xy(grid.affine, row_max, col_max, offset='lr')
 acc_cmap = colors.LinearSegmentedColormap.from_list(
-    'acc_white_cyan_blue',
-    ['#ffffff', '#7fd3ff', '#003b8e'],
+    'acc_red_blue',
+    ['#d73027', '#4575b4'],
 )
+acc_cmap.set_bad('white')
 
 valid_acc_in_catch = acc_in_catch[np.isfinite(acc_in_catch)]
 acc_norm = None
