@@ -103,7 +103,7 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf = 0.834 #si plottano i valori <inf e >sup
+rho_max_inf = 0.850 #si plottano i valori <inf e >sup
 rho_max_sup = 0.941
 
 rho_mean_inf = 0.832074078
@@ -521,6 +521,7 @@ def plot_rho_pixels_on_network(
         source_df: pd.DataFrame | None = None,
         non_matching_color: str = "0.55",
         inherit_missing_values: bool = True,
+        show_flow_stations: bool = True
     ):
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
         cmap = plt.cm.viridis
@@ -674,7 +675,12 @@ def plot_rho_pixels_on_network(
                     zorder=4,
                 )
 
-        if station_lons is not None and station_lats is not None and len(station_lons):
+        if (
+            show_flow_stations
+            and station_lons is not None
+            and station_lats is not None
+            and len(station_lons)
+        ):
             ax.scatter(
                 station_lons,
                 station_lats,
@@ -731,6 +737,7 @@ def plot_rho_pixels_on_network(
             source_df=filtered_df,
             non_matching_color="0.8",
             inherit_missing_values=False,
+            show_flow_stations=False,
         )
         cbar = add_vertical_colorbar(
             fig,
@@ -750,6 +757,7 @@ def plot_rho_pixels_on_network(
         column: str,
         label: str,
         title_suffix: str = "",
+        show_flow_stations: bool = True,
     ):
         if points_df.empty:
             print(f"Nessun pixel disponibile per il plot {label}{title_suffix}.")
@@ -783,7 +791,12 @@ def plot_rho_pixels_on_network(
             )
             
             legend_handles = []
-            if station_lons is not None and station_lats is not None and len(station_lons):
+            if (
+                show_flow_stations
+                and station_lons is not None
+                and station_lats is not None
+                and len(station_lons)
+            ):
                 station_scatter = ax.scatter(
                     station_lons,
                     station_lats,
@@ -795,7 +808,7 @@ def plot_rho_pixels_on_network(
                     label="Flow measuring stations",
                     zorder=7,
                 )
-            legend_handles.append(station_scatter)
+                legend_handles.append(station_scatter)
 
             if legend_handles:
                 ax.legend(handles=legend_handles, loc="lower left", fontsize=9, frameon=True)
@@ -841,6 +854,7 @@ def plot_rho_pixels_on_network(
             column=column,
             label=label,
             title_suffix=title_suffix,
+            show_flow_stations=False,
         )
         
     f_branch_plots = [
