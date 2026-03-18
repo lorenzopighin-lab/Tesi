@@ -103,7 +103,7 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf = 0.893 #si plottano i valori <inf e >sup
+rho_max_inf = 0.834 #si plottano i valori <inf e >sup
 rho_max_sup = 0.941
 
 rho_mean_inf = 0.832074078
@@ -863,13 +863,6 @@ def plot_rho_pixels_on_network(
         f_network = _plot_rho_network_colored(ax, column=column)
         cbar = add_vertical_colorbar(fig, ax, f_network, cbar_label)
         cbar.ax.tick_params(labelsize=9)
-        ax.set_title(
-            (
-                f"Rete canali colorata con {cbar_label} "
-                f"(>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)"
-            ),
-            size=13,
-        )
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
         add_scale_bar(ax, grid.affine, location="upper left")
@@ -3081,7 +3074,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_935"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
