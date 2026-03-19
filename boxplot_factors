@@ -36,6 +36,9 @@ F_LAMBDA_PLOT_NAME = "boxplot_f_lambda.png"
 F_ALPHA_PLOT_NAME = "boxplot_f_alpha.png"
 COMBINED_PLOT_NAME = "boxplot_f_lambda_f_alpha.png"
 
+Y_AXIS_MIN = 0.84
+Y_AXIS_MAX = 1.00
+Y_AXIS_MARGIN = 0.01
 
 BOX_STYLE_LAMBDA = {
     "facecolor": "#1f77b4",
@@ -94,6 +97,8 @@ def build_series_by_season(df: pd.DataFrame, column_name: str) -> list[list[floa
         data.append(values)
     return data
 
+def apply_y_axis_limits(ax: plt.Axes) -> None:
+    ax.set_ylim(Y_AXIS_MIN - Y_AXIS_MARGIN, Y_AXIS_MAX + Y_AXIS_MARGIN)
 
 def create_single_variable_boxplot(
     data: list[list[float]],
@@ -120,6 +125,7 @@ def create_single_variable_boxplot(
     ax.set_title(title, fontsize=18, pad=16)
     ax.set_ylabel(y_label)
     ax.set_xlabel("Season")
+    apply_y_axis_limits(ax)
     ax.grid(axis="y", alpha=0.25)
 
     fig.tight_layout()
@@ -170,6 +176,7 @@ def create_combined_boxplot(
     ax.set_xlabel("Season")
     ax.set_ylabel("Value")
     ax.set_title("F_lambda e F_alpha per stagione", fontsize=18, pad=16)
+    apply_y_axis_limits(ax)
     ax.grid(axis="y", alpha=0.25)
     ax.legend(
         handles=[
