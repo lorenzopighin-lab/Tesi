@@ -1,0 +1,223 @@
+# -*- coding: utf-8 -*-
+"""
+Script per creare boxplot stagionali di F_lambda e F_alpha da un file CSV.
+
+Input CSV richiesto:
+- colonna Season con 4 stagioni (es. AUTUMN, WINTER, SPRING, SUMMER)
+- colonna F_lambda con valori numerici
+- colonna F_alpha con valori numerici
+
+Output prodotti:
+1) un grafico con 4 boxplot di F_lambda (uno per stagione)
+2) un grafico con 4 boxplot di F_alpha (uno per stagione)
+3) un grafico combinato con boxplot affiancati di F_lambda e F_alpha per ogni stagione
+"""
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# =========================
+# CONFIGURAZIONE UTENTE
+# =========================
+CSV_PATH = "C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/season_factors.csv"
+OUTPUT_DIR = "C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/boxplot_factors"
+
+SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER"]
+SEASON_LABELS = {
+    "AUTUMN": "Autumn",
+    "WINTER": "Winter",
+    "SPRING": "Spring",
+    "SUMMER": "Summer",
+}
+
+F_LAMBDA_PLOT_NAME = "boxplot_f_lambda.png"
+F_ALPHA_PLOT_NAME = "boxplot_f_alpha.png"
+COMBINED_PLOT_NAME = "boxplot_f_lambda_f_alpha.png"
+
+
+BOX_STYLE_LAMBDA = {
+    "facecolor": "#1f77b4",
+    "edgecolor": "#000000",
+    "linewidth": 1.2,
+}
+BOX_STYLE_ALPHA = {
+    "facecolor": "#ff7f0e",
+    "edgecolor": "#000000",
+    "linewidth": 1.2,
+}
+COMMON_LINE_STYLE = {"color": "#000000", "linewidth": 1.2}
+MEDIAN_STYLE = {"color": "#000000", "linewidth": 1.6}
+
+
+def load_and_validate_data(csv_path: str | Path) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+
+    required_columns = {"Season", "F_lambda", "F_alpha"}
+    if not required_columns.issubset(df.columns):
+        missing = required_columns - set(df.columns)
+        raise ValueError(f"Colonne mancanti nel CSV: {sorted(missing)}")
+
+    df = df.copy()
+    df["Season"] = df["Season"].astype(str).str.upper().str.strip()
+    df["F_lambda"] = pd.to_numeric(df["F_lambda"], errors="coerce")
+    df["F_alpha"] = pd.to_numeric(df["F_alpha"], errors="coerce")
+    df = df.dropna(subset=["Season"])
+    df = df[df["Season"].isin(SEASON_ORDER)]
+
+    if df.empty:
+        raise ValueError("Nessun dato valido trovato per le stagioni richieste.")
+
+    season_count = df["Season"].nunique()
+    if season_count != len(SEASON_ORDER):
+        present = sorted(df["Season"].unique())
+        raise ValueError(
+            "Il CSV deve contenere esattamente 4 stagioni valide: "
+            f"{SEASON_ORDER}. Trovate: {present}"
+        )
+
+    if df["F_lambda"].dropna().empty:
+        raise ValueError("La colonna F_lambda non contiene valori numerici validi.")
+    if df["F_alpha"].dropna().empty:
+        raise ValueError("La colonna F_alpha non contiene valori numerici validi.")
+
+    return df
+
+
+def build_series_by_season(df: pd.DataFrame, column_name: str) -> list[list[float]]:
+    data = []
+    for season in SEASON_ORDER:
+        values = df.loc[df["Season"] == season, column_name].dropna().tolist()
+        if not values:
+            raise ValueError(f"Nessun valore valido per {column_name} nella stagione {season}.")
+        data.append(values)
+    return data
+
+
+def create_single_variable_boxplot(
+    data: list[list[float]],
+    *,
+    title: str,
+    y_label: str,
+    output_path: Path,
+    box_style: dict,
+) -> None:
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.boxplot(
+        data,
+        labels=[SEASON_LABELS[season] for season in SEASON_ORDER],
+        whis=(0, 100),
+        showmeans=False,
+        showfliers=False,
+        patch_artist=True,
+        boxprops=box_style,
+        whiskerprops=COMMON_LINE_STYLE,
+        capprops=COMMON_LINE_STYLE,
+        medianprops=MEDIAN_STYLE,
+    )
+
+    ax.set_title(title, fontsize=18, pad=16)
+    ax.set_ylabel(y_label)
+    ax.set_xlabel("Season")
+    ax.grid(axis="y", alpha=0.25)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def create_combined_boxplot(
+    lambda_data: list[list[float]],
+    alpha_data: list[list[float]],
+    output_path: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    base_positions = list(range(1, len(SEASON_ORDER) + 1))
+    lambda_positions = [position - 0.18 for position in base_positions]
+    alpha_positions = [position + 0.18 for position in base_positions]
+
+    ax.boxplot(
+        lambda_data,
+        positions=lambda_positions,
+        widths=0.3,
+        whis=(0, 100),
+        showmeans=False,
+        showfliers=False,
+        patch_artist=True,
+        boxprops=BOX_STYLE_LAMBDA,
+        whiskerprops=COMMON_LINE_STYLE,
+        capprops=COMMON_LINE_STYLE,
+        medianprops=MEDIAN_STYLE,
+    )
+    ax.boxplot(
+        alpha_data,
+        positions=alpha_positions,
+        widths=0.3,
+        whis=(0, 100),
+        showmeans=False,
+        showfliers=False,
+        patch_artist=True,
+        boxprops=BOX_STYLE_ALPHA,
+        whiskerprops=COMMON_LINE_STYLE,
+        capprops=COMMON_LINE_STYLE,
+        medianprops=MEDIAN_STYLE,
+    )
+
+    ax.set_xticks(base_positions)
+    ax.set_xticklabels([SEASON_LABELS[season] for season in SEASON_ORDER])
+    ax.set_xlabel("Season")
+    ax.set_ylabel("Value")
+    ax.set_title("F_lambda e F_alpha per stagione", fontsize=18, pad=16)
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(
+        handles=[
+            plt.Rectangle((0, 0), 1, 1, **BOX_STYLE_LAMBDA),
+            plt.Rectangle((0, 0), 1, 1, **BOX_STYLE_ALPHA),
+        ],
+        labels=["F_lambda", "F_alpha"],
+        loc="best",
+    )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def main() -> None:
+    output_dir = Path(OUTPUT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    df = load_and_validate_data(CSV_PATH)
+    lambda_data = build_series_by_season(df, "F_lambda")
+    alpha_data = build_series_by_season(df, "F_alpha")
+
+    create_single_variable_boxplot(
+        lambda_data,
+        title="F_lambda per stagione",
+        y_label="F_lambda",
+        output_path=output_dir / F_LAMBDA_PLOT_NAME,
+        box_style=BOX_STYLE_LAMBDA,
+    )
+    create_single_variable_boxplot(
+        alpha_data,
+        title="F_alpha per stagione",
+        y_label="F_alpha",
+        output_path=output_dir / F_ALPHA_PLOT_NAME,
+        box_style=BOX_STYLE_ALPHA,
+    )
+    create_combined_boxplot(
+        lambda_data,
+        alpha_data,
+        output_path=output_dir / COMBINED_PLOT_NAME,
+    )
+
+    print("Grafici salvati in:")
+    print(output_dir / F_LAMBDA_PLOT_NAME)
+    print(output_dir / F_ALPHA_PLOT_NAME)
+    print(output_dir / COMBINED_PLOT_NAME)
+
+
+if __name__ == "__main__":
+    main()
