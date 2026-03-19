@@ -1742,53 +1742,54 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
 
 #%%%plot catchment grigio + rete azzurra
-fig, ax = plt.subplots(figsize=(8.5, 6.5))
-x_min, x_max = grid.bbox[0], grid.bbox[2]
-y_min, y_max = grid.bbox[1], grid.bbox[3]
-x_pad = (x_max - x_min) * PLOT_FRAME_MARGIN_FRACTION
-y_pad = (y_max - y_min) * PLOT_FRAME_MARGIN_FRACTION
-ax.set_xlim(x_min - x_pad, x_max + x_pad)
-ax.set_ylim(y_min - y_pad, y_max + y_pad)
-ax.set_aspect('equal')
-ax.set_xlabel('Longitude')
-ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower left')
+def _plot_catchment_network_background(station_records=None):
+    """Plot del bacino in grigio con rete drenante azzurra e stazioni snappate."""
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    x_min, x_max = grid.bbox[0], grid.bbox[2]
+    y_min, y_max = grid.bbox[1], grid.bbox[3]
+    x_pad = (x_max - x_min) * PLOT_FRAME_MARGIN_FRACTION
+    y_pad = (y_max - y_min) * PLOT_FRAME_MARGIN_FRACTION
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.set_ylim(y_min - y_pad, y_max + y_pad)
+    ax.set_aspect('equal')
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+    add_scale_bar(ax, grid.affine, location='lower left')
 
-ax.imshow(
-    np.where(catch_view, 1.0, np.nan),
-    extent=grid.extent,
-    cmap=colors.ListedColormap(['#d9d9d9']),
-    alpha=1.0,
-    origin='upper',
-    zorder=1,
-)
-
-for branch in branches['features']:
-    line = np.asarray(branch['geometry']['coordinates'], dtype=float)
-    if line.shape[0] < 2:
-        continue
-    ax.plot(line[:, 0], line[:, 1], color='deepskyblue', linewidth=1.5, zorder=2)
-
-if stations_in_catchment:
-    discharge_lons = np.asarray([rec["lon"] for rec in stations_in_catchment], dtype="float32")
-    discharge_lats = np.asarray([rec["lat"] for rec in stations_in_catchment], dtype="float32")
-    station_scatter = ax.scatter(
-        discharge_lons,
-        discharge_lats,
-        s=45,
-        marker='o',
-        facecolors='red',
-        edgecolors='black',
-        linewidth=0.6,
-        zorder=6,
-        label='Flow measuring stations',
+    ax.imshow(
+        np.where(catch_view, 1.0, np.nan),
+        extent=grid.extent,
+        cmap=colors.ListedColormap(['#d9d9d9']),
+        alpha=1.0,
+        origin='upper',
+        zorder=1,
     )
-    _annotate_station_labels(
-        ax,
-        stations_in_catchment,
-        station_offsets={"DE111230": (0, -12)},
-    )
-    ax.legend(handles=[station_scatter], loc='upper right', fontsize=9, frameon=True)
+    for branch in branches['features']:
+        line = np.asarray(branch['geometry']['coordinates'], dtype=float)
+        if line.shape[0] < 2:
+            continue
+        ax.plot(line[:, 0], line[:, 1], color='deepskyblue', linewidth=1.5, zorder=2)
+
+    if station_records:
+        discharge_lons = np.asarray([rec['lon'] for rec in station_records], dtype='float32')
+        discharge_lats = np.asarray([rec['lat'] for rec in station_records], dtype='float32')
+        station_scatter = ax.scatter(
+            discharge_lons,
+            discharge_lats,
+            s=45,
+            marker='o',
+            facecolors='red',
+            edgecolors='black',
+            linewidth=0.6,
+            zorder=6,
+            label='Flow measuring stations',
+        )
+        _annotate_station_labels(
+            ax,
+            station_records,
+            station_offsets={'DE111230': (0, -12)},
+        )
+        ax.legend(handles=[station_scatter], loc='upper right', fontsize=9, frameon=True)
 #%%%plot branches colorate per area contribuente (km²)
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
 ax.set_xlim(grid.bbox[0], grid.bbox[2])
@@ -2737,6 +2738,17 @@ if station_snapped_coords.size == 0:
     station_snapped_coords = np.empty((0, 2), dtype=float)
 if selected_snapped_coords.size == 0:
     selected_snapped_coords = np.empty((0, 2), dtype=float)
+    
+snapped_station_records = [
+    {
+        'station_id': str(pt.get('station_id') or '').strip(),
+        'lon': float(pt['snapped_coord'][0]),
+        'lat': float(pt['snapped_coord'][1]),
+    }
+    for pt in station_points
+    if pt.get('snapped_coord') is not None
+]
+_plot_catchment_network_background(snapped_station_records)
 all_snapped_coords = np.vstack(
     [coords for coords in (station_snapped_coords, selected_snapped_coords) if coords.size]
 ) if (station_snapped_coords.size or selected_snapped_coords.size) else np.empty((0, 2), dtype=float)
