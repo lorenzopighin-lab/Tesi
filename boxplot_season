@@ -17,7 +17,7 @@ CSV_PATH = "C:/Users/loren/Desktop/Tesi_magi/codes/Season/rho_season.csv"
 OUTPUT_PLOT_PATH = "C:/Users/loren/Desktop/Tesi_magi/codes/Season/boxplot_rho_max.png"
 
 
-SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER", "YEAR"]
+SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER", "ANNUAL"]
 
 
 def main() -> None:
@@ -57,8 +57,8 @@ def main() -> None:
 
     ax.set_title("rho_max", fontsize=20, pad=20)
     ax.set_ylabel("Rho_max")
-    ax.set_ylim(0.75, 1)
-    ax.grid(axis="y", alpha=0.25)
+    ax.set_ylim(0.75, 1.01)
+    ax.set_yticks([0.75, 0.8, 0.85, 0.9, 0.95, 1.0])
 
     fig.tight_layout()
     fig.savefig(OUTPUT_PLOT_PATH, dpi=300)
@@ -69,3 +69,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
