@@ -86,7 +86,7 @@ MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia M
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_pixel_precipitation_table.csv")
 COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/summer")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/autumn")
 STATION_RHO_OUTPUT_DIR = MODEL_OUTPUT_DIR / "station_rho"
 SEASONAL_FILTERED_INPUT_DIR = MODEL_OUTPUT_DIR / "seasonal_inputs"
 
@@ -105,7 +105,7 @@ PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2
 PLOT_RHO_PIXELS = True
 PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
-RHO_COLOR_SCALE_MIN = 0.7
+RHO_COLOR_SCALE_MIN = 0.75
 RHO_COLOR_SCALE_MAX = 1.0
 rho_max_inf = 0.912183492  #si plottano i valori <inf e >sup
 rho_max_sup = 0.912183492
