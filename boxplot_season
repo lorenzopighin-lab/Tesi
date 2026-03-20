@@ -56,9 +56,11 @@ def main() -> None:
     )
 
     ax.set_title("rho_max", fontsize=20, pad=20)
-    ax.set_ylabel("Rho_max")
+    ax.set_ylabel(r"$\rho_{\mathrm{max}}$")
     ax.set_ylim(0.75, 1.01)
     ax.set_yticks([0.75, 0.8, 0.85, 0.9, 0.95, 1.0])
+    ax.yaxis.grid(True, color="#d9d9d9", linestyle="-", linewidth=0.8)
+    ax.set_axisbelow(True)
 
     fig.tight_layout()
     fig.savefig(OUTPUT_PLOT_PATH, dpi=300)
