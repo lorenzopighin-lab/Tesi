@@ -104,7 +104,6 @@ def apply_y_axis_limits(ax: plt.Axes) -> None:
 def create_single_variable_boxplot(
     data: list[list[float]],
     *,
-    title: str,
     y_label: str,
     output_path: Path,
     box_style: dict,
@@ -122,10 +121,8 @@ def create_single_variable_boxplot(
         capprops=COMMON_LINE_STYLE,
         medianprops=MEDIAN_STYLE,
     )
-
-    ax.set_title(title, fontsize=18, pad=16)
+    
     ax.set_ylabel(y_label)
-    ax.set_xlabel("Season")
     apply_y_axis_limits(ax)
     ax.grid(axis="y", alpha=0.25)
 
@@ -174,9 +171,7 @@ def create_combined_boxplot(
 
     ax.set_xticks(base_positions)
     ax.set_xticklabels([SEASON_LABELS[season] for season in SEASON_ORDER])
-    ax.set_xlabel("Season")
     ax.set_ylabel("Value")
-    ax.set_title("F_lambda e F_alpha per stagione", fontsize=18, pad=16)
     apply_y_axis_limits(ax)
     ax.grid(axis="y", alpha=0.25)
     ax.legend(
@@ -184,7 +179,7 @@ def create_combined_boxplot(
             plt.Rectangle((0, 0), 1, 1, **BOX_STYLE_LAMBDA),
             plt.Rectangle((0, 0), 1, 1, **BOX_STYLE_ALPHA),
         ],
-        labels=["F_lambda", "F_alpha"],
+        labels=[r"$F_{\lambda}$", r"$F_{\alpha}$"],
         loc="best",
     )
 
@@ -203,15 +198,13 @@ def main() -> None:
 
     create_single_variable_boxplot(
         lambda_data,
-        title="F_lambda per stagione",
-        y_label="F_lambda",
+        y_label=r"$F_{\lambda}$",
         output_path=output_dir / F_LAMBDA_PLOT_NAME,
         box_style=BOX_STYLE_LAMBDA,
     )
     create_single_variable_boxplot(
         alpha_data,
-        title="F_alpha per stagione",
-        y_label="F_alpha",
+        y_label=r"$F_{\alpha}$",
         output_path=output_dir / F_ALPHA_PLOT_NAME,
         box_style=BOX_STYLE_ALPHA,
     )
