@@ -24,12 +24,13 @@ import pandas as pd
 CSV_PATH = "C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/season_factors.csv"
 OUTPUT_DIR = "C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/boxplot_factors"
 
-SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER"]
+SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER", "ANNUAL"]
 SEASON_LABELS = {
     "AUTUMN": "Autumn",
     "WINTER": "Winter",
     "SPRING": "Spring",
     "SUMMER": "Summer",
+    "ANNUAL": "Annual"
 }
 
 F_LAMBDA_PLOT_NAME = "boxplot_f_lambda.png"
