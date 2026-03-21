@@ -26,11 +26,11 @@ OUTPUT_DIR = "C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_fin
 
 SEASON_ORDER = ["AUTUMN", "WINTER", "SPRING", "SUMMER", "ANNUAL"]
 SEASON_LABELS = {
-    "AUTUMN": "Autumn",
-    "WINTER": "Winter",
-    "SPRING": "Spring",
-    "SUMMER": "Summer",
-    "ANNUAL": "Annual"
+    "AUTUMN": "AUTUMN",
+    "WINTER": "WINTER",
+    "SPRING": "SPRING",
+    "SUMMER": "SUMMER",
+    "ANNUAL": "ANNUAL"
 }
 
 F_LAMBDA_PLOT_NAME = "boxplot_f_lambda.png"
@@ -53,7 +53,8 @@ BOX_STYLE_ALPHA = {
 }
 COMMON_LINE_STYLE = {"color": "#000000", "linewidth": 1.2}
 MEDIAN_STYLE = {"color": "#000000", "linewidth": 1.6}
-
+Y_LABEL_FONT_SIZE = 16
+LEGEND_FONT_SIZE = 14
 
 def load_and_validate_data(csv_path: str | Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
@@ -122,7 +123,7 @@ def create_single_variable_boxplot(
         medianprops=MEDIAN_STYLE,
     )
     
-    ax.set_ylabel(y_label)
+    ax.set_ylabel(y_label, fontsize=Y_LABEL_FONT_SIZE)
     apply_y_axis_limits(ax)
     ax.grid(axis="y", alpha=0.25)
 
@@ -171,7 +172,7 @@ def create_combined_boxplot(
 
     ax.set_xticks(base_positions)
     ax.set_xticklabels([SEASON_LABELS[season] for season in SEASON_ORDER])
-    ax.set_ylabel("Value")
+    ax.set_ylabel("Value", fontsize=Y_LABEL_FONT_SIZE)
     apply_y_axis_limits(ax)
     ax.grid(axis="y", alpha=0.25)
     ax.legend(
@@ -180,7 +181,8 @@ def create_combined_boxplot(
             plt.Rectangle((0, 0), 1, 1, **BOX_STYLE_ALPHA),
         ],
         labels=[r"$F_{\lambda}$", r"$F_{\alpha}$"],
-        loc="best",
+        loc="lower left",
+        fontsize=LEGEND_FONT_SIZE,
     )
 
     fig.tight_layout()
