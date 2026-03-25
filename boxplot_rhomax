@@ -72,12 +72,16 @@ def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Pa
     ax.set_xticks([])
     ax.set_ylabel(r"$\rho_{\max}$")
     ax.grid(axis="y", alpha=0.25)
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
     
     percentiles = [5, 10, 15, 20, 25, 50, 75, 80, 85, 90, 95]
     percentile_positions = np.percentile(series, percentiles)
 
     percentile_axis = ax.secondary_yaxis("left", functions=(lambda y: y, lambda y: y))
     percentile_axis.spines["left"].set_position(("outward", 45))
+    percentile_axis.yaxis.set_label_position("left")
+    percentile_axis.yaxis.tick_left()
     percentile_axis.set_yticks(percentile_positions)
     percentile_axis.set_yticklabels([str(p) for p in percentiles])
     percentile_axis.set_ylabel("Percentile (%)")
