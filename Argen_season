@@ -348,6 +348,7 @@ def plot_rho_pixels_on_network(
     pixel_table_path: Path,
     branches_data,
     *,
+    rho_max_diff_csv_path: Path | None = None,
     transform=None,
     dem_background=None,
     dem_extent=None,
@@ -404,9 +405,43 @@ def plot_rho_pixels_on_network(
 
     coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
     merged = coords.merge(rho_values, on="pixel_id", how="inner")
+    rho_diff_merged = None
     if merged.empty:
         print("Nessun pixel trovato per il plotting di rho.")
         return
+    
+    if rho_max_diff_csv_path is not None:
+        rho_max_diff_csv = Path(rho_max_diff_csv_path).expanduser()
+        if rho_max_diff_csv.exists():
+            diff_table = pd.read_csv(rho_max_diff_csv)
+            diff_pixel_col = _find_column(diff_table, ["pixel_id", "Pixel_id", "id"])
+            diff_value_col = _find_column(
+                diff_table,
+                ["rho_max_difference", "rho_1_max_difference", "difference"],
+            )
+            if diff_pixel_col is None or diff_value_col is None:
+                print(
+                    "CSV differenze rho_max senza colonne richieste (pixel_id, rho_max_difference)."
+                )
+            else:
+                diff_values = diff_table[[diff_pixel_col, diff_value_col]].copy()
+                diff_values = diff_values.rename(
+                    columns={
+                        diff_pixel_col: "pixel_id",
+                        diff_value_col: "rho_max_difference",
+                    }
+                )
+                diff_values["pixel_id"] = diff_values["pixel_id"].apply(_normalize_pixel_id)
+                diff_values["rho_max_difference"] = pd.to_numeric(
+                    diff_values["rho_max_difference"], errors="coerce"
+                )
+                diff_values = diff_values.dropna(subset=["pixel_id", "rho_max_difference"])
+                diff_values["pixel_id"] = diff_values["pixel_id"].astype(int)
+                rho_diff_merged = coords.merge(diff_values, on="pixel_id", how="inner")
+                if rho_diff_merged.empty:
+                    print("Nessun pixel comune trovato per il plot differenze rho_max.")
+        else:
+            print(f"CSV differenze rho_max non trovato: {rho_max_diff_csv}")
     
     station_lons = None
     station_lats = None
@@ -505,9 +540,11 @@ def plot_rho_pixels_on_network(
         source_df: pd.DataFrame | None = None,
         non_matching_color: str = "0.55",
         inherit_missing_values: bool = True,
+        cmap=plt.cm.viridis,
+        norm=None,
     ):
-        norm = colors.Normalize(vmin=vmin, vmax=vmax)
-        cmap = plt.cm.viridis
+        if norm is None:
+            norm = colors.Normalize(vmin=vmin, vmax=vmax)
         points_source = merged if source_df is None else source_df
 
         def _node_key(point_xy: np.ndarray, decimals: int = 7) -> tuple[float, float]:
@@ -886,6 +923,35 @@ def plot_rho_pixels_on_network(
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
         add_scale_bar(ax, grid.affine, location="lower left")
+        plt.show()
+        
+    if rho_diff_merged is not None and not rho_diff_merged["rho_max_difference"].dropna().empty:
+        fig, ax = plt.subplots(figsize=(8.5, 6.5))
+        ax.set_xlim(grid.bbox[0], grid.bbox[2])
+        ax.set_ylim(grid.bbox[1], grid.bbox[3])
+        ax.set_aspect("equal")
+        diff_norm = colors.TwoSlopeNorm(vmin=-0.05, vcenter=0.0, vmax=0.05)
+        diff_cmap = plt.cm.bwr
+        rho_diff_network = _plot_rho_network_colored(
+            ax,
+            column="rho_max_difference",
+            source_df=rho_diff_merged,
+            cmap=diff_cmap,
+            norm=diff_norm,
+        )
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="4%", pad=0.1)
+        cbar = fig.colorbar(rho_diff_network, cax=cax)
+        cbar.set_label(r"$\rho_{\max}$ seasonal variation")
+        cbar.ax.tick_params(labelsize=9)
+        add_scale_bar(
+            ax,
+            grid.affine,
+            preferred_lengths_meters=[10000],
+            location="lower left",
+        )
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
         plt.show()
     
 def _normalize_pixel_id_generic(value) -> int | None:
@@ -3229,6 +3295,7 @@ else:
                     model_outputs = [output_file]
 
             for model_output in model_outputs:
+                    differences_csv = None
                     print(
                         "Output Model salvato in "
                         f"{model_output.resolve()}"
@@ -3275,6 +3342,7 @@ else:
                                     rho_csv_path,
                                     PIXEL_TABLE_OUTPUT,
                                     branches,
+                                    rho_max_diff_csv_path=differences_csv,
                                     transform=grid.affine,
                                     dem_background=inflated_dem_masked,
                                     dem_extent=grid.extent,
