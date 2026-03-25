@@ -104,6 +104,8 @@ PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul ba
 PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 PLOT_RHO_PIXELS = True
 PROMPT_RHO_CSV = True
+PROMPT_ANNUAL_RHO_MAX_CSV = False
+ANNUAL_RHO_MAX_CSV_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/rhomax_annual.csv")  # es. Path(".../annual_max_rho_1.csv"
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.75
 RHO_COLOR_SCALE_MAX = 1.0
@@ -885,6 +887,95 @@ def plot_rho_pixels_on_network(
         ax.set_ylabel("Latitude")
         add_scale_bar(ax, grid.affine, location="lower left")
         plt.show()
+    
+def _normalize_pixel_id_generic(value) -> int | None:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower().startswith("catchment_"):
+        text = text.split("_", 1)[1]
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_rho_max_differences_csv(
+    seasonal_rho_csv: Path,
+    annual_rho_csv: Path,
+    output_dir: Path,
+) -> Path:
+    seasonal_df = pd.read_csv(seasonal_rho_csv)
+    annual_df = pd.read_csv(annual_rho_csv)
+
+    seasonal_pixel_col = _find_column(seasonal_df, ["Pixel_id", "pixel_id", "id"])
+    seasonal_rho_max_col = _find_column(seasonal_df, ["rho_1_max", "rho_max"])
+    annual_pixel_col = _find_column(annual_df, ["Pixel_id", "pixel_id", "id"])
+    annual_rho_max_col = _find_column(annual_df, ["rho_1_max", "rho_max"])
+
+    missing_cols = [
+        name
+        for name, col in (
+            ("pixel_id (stagionale)", seasonal_pixel_col),
+            ("rho_max (stagionale)", seasonal_rho_max_col),
+            ("pixel_id (annuale)", annual_pixel_col),
+            ("rho_max (annuale)", annual_rho_max_col),
+        )
+        if col is None
+    ]
+    if missing_cols:
+        raise KeyError(
+            "Colonne mancanti per il calcolo delle differenze rho_max: "
+            + ", ".join(missing_cols)
+        )
+
+    seasonal_values = seasonal_df[[seasonal_pixel_col, seasonal_rho_max_col]].copy()
+    seasonal_values = seasonal_values.rename(
+        columns={
+            seasonal_pixel_col: "pixel_id",
+            seasonal_rho_max_col: "rho_max_seasonal",
+        }
+    )
+    seasonal_values["pixel_id"] = seasonal_values["pixel_id"].apply(
+        _normalize_pixel_id_generic
+    )
+    seasonal_values["rho_max_seasonal"] = pd.to_numeric(
+        seasonal_values["rho_max_seasonal"], errors="coerce"
+    )
+    seasonal_values = seasonal_values.dropna(subset=["pixel_id", "rho_max_seasonal"])
+    seasonal_values["pixel_id"] = seasonal_values["pixel_id"].astype(int)
+
+    annual_values = annual_df[[annual_pixel_col, annual_rho_max_col]].copy()
+    annual_values = annual_values.rename(
+        columns={
+            annual_pixel_col: "pixel_id",
+            annual_rho_max_col: "rho_max_annual",
+        }
+    )
+    annual_values["pixel_id"] = annual_values["pixel_id"].apply(
+        _normalize_pixel_id_generic
+    )
+    annual_values["rho_max_annual"] = pd.to_numeric(
+        annual_values["rho_max_annual"], errors="coerce"
+    )
+    annual_values = annual_values.dropna(subset=["pixel_id", "rho_max_annual"])
+    annual_values["pixel_id"] = annual_values["pixel_id"].astype(int)
+
+    merged = seasonal_values.merge(annual_values, on="pixel_id", how="inner")
+    if merged.empty:
+        raise ValueError(
+            "Nessun pixel in comune tra il CSV stagionale e il CSV annuale."
+        )
+
+    merged["rho_max_difference"] = merged["rho_max_seasonal"] - merged["rho_max_annual"]
+    merged = merged.sort_values("pixel_id")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "differences.csv"
+    merged.to_csv(output_path, index=False)
+    return output_path
     
 def _load_station_points(meta_path: Path):
     if not meta_path:
@@ -3087,6 +3178,24 @@ else:
             seasonal_period_end,
             label="pixel",
         )
+        
+    annual_rho_max_csv_path = Path(ANNUAL_RHO_MAX_CSV_PATH).expanduser()
+    if PROMPT_ANNUAL_RHO_MAX_CSV:
+        default_annual_csv_label = (
+            str(annual_rho_max_csv_path)
+            if str(annual_rho_max_csv_path).strip()
+            else "nessuno"
+        )
+        try:
+            user_annual_rho_csv = input(
+                "Inserisci il file CSV annuale con rho_max per pixel "
+                f"(invio per usare {default_annual_csv_label}): "
+            )
+        except EOFError:
+            user_annual_rho_csv = ""
+        user_annual_rho_csv = user_annual_rho_csv.strip()
+        if user_annual_rho_csv:
+            annual_rho_max_csv_path = Path(user_annual_rho_csv).expanduser()
 
     station_model_input = STATION_PRECIPITATION_OUTPUT
     pixel_model_input = PIXEL_PRECIPITATION_OUTPUT
@@ -3132,6 +3241,22 @@ else:
                             model_output,
                             output_csv=filtered_output,
                         )
+                        if str(annual_rho_max_csv_path).strip():
+                            try:
+                                differences_csv = _build_rho_max_differences_csv(
+                                    filtered_output,
+                                    annual_rho_max_csv_path,
+                                    MODEL_OUTPUT_DIR,
+                                )
+                                print(
+                                    "CSV differenze rho_max (stagionale - annuale) salvato in "
+                                    f"{differences_csv.resolve()}"
+                                )
+                            except Exception as exc:
+                                print(
+                                    "Impossibile generare il CSV delle differenze rho_max: "
+                                    f"{exc}"
+                                )
                         if PLOT_RHO_PIXELS:
                             rho_csv_path = filtered_output
                             if PROMPT_RHO_CSV:
