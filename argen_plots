@@ -62,9 +62,9 @@ MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 REFERENCE_RHO_STATIONS = [   #per i plot della rete riferiti a singole stazioni
-    "catchment_DE111140",
-    "catchment_DE110950",
-    "catchment_DE111230",
+    "",
+    "",
+    "",
 ]
 
 # --- Esportazione tabella pixel selezionati ---
@@ -108,7 +108,7 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf_values = [0.834, 0.850, 0.865, 0.893]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
+rho_max_inf_values = [0.850, 0.866]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
 rho_max_sup = 0.941
 
 rho_mean_inf = 0.832074078
@@ -386,6 +386,7 @@ def plot_rho_pixels_on_network(
     pixel_table_path: Path,
     branches_data,
     *,
+    reference_rho_csv_path: Path | None = None,
     transform=None,
     dem_background=None,
     dem_extent=None,
@@ -463,30 +464,57 @@ def plot_rho_pixels_on_network(
     rho_values = rho_values.dropna(subset=["pixel_id"])
     rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
     
-    station_rho_values = None
-    if station_col is not None and rho_pair_col is not None:
-       station_rho_values = rho_table[[pixel_id_col, station_col, rho_pair_col]].copy()
-       station_rho_values = station_rho_values.rename(
-           columns={
-               pixel_id_col: "pixel_id",
-               station_col: "station_id",
-               rho_pair_col: "rho_station_ref",
+    def _extract_station_rho_values(source_table: pd.DataFrame | None) -> pd.DataFrame | None:
+        if source_table is None or source_table.empty:
+            return None
+        source_pixel_col = _find_column(source_table, ["Pixel_id", "pixel_id", "id"])
+        source_station_col = _find_column(source_table, ["station_id", "Station_id", "station"])
+        source_rho_pair_col = _find_column(source_table, ["rho_1"])
+        if source_pixel_col is None or source_station_col is None or source_rho_pair_col is None:
+            return None
+        station_values = source_table[[source_pixel_col, source_station_col, source_rho_pair_col]].copy()
+        station_values = station_values.rename(
+            columns={
+                source_pixel_col: "pixel_id",
+                source_station_col: "station_id",
+                source_rho_pair_col: "rho_station_ref",
             }
-)
-       station_rho_values["pixel_id"] = station_rho_values["pixel_id"].apply(_normalize_pixel_id)
-       station_rho_values["station_id"] = station_rho_values["station_id"].apply(
-            _normalize_station_id
+
         )
-       station_rho_values["rho_station_ref"] = pd.to_numeric(
-            station_rho_values["rho_station_ref"], errors="coerce"
+        station_values["pixel_id"] = station_values["pixel_id"].apply(_normalize_pixel_id)
+        station_values["station_id"] = station_values["station_id"].apply(_normalize_station_id)
+        station_values["rho_station_ref"] = pd.to_numeric(
+            station_values["rho_station_ref"], errors="coerce"
         )
-       station_rho_values = station_rho_values.dropna(
+        station_values = station_values.dropna(
             subset=["pixel_id", "station_id", "rho_station_ref"]
         )
-       station_rho_values = station_rho_values[
-            station_rho_values["station_id"] != ""
+        station_values = station_values[
+            station_values["station_id"] != ""
         ].copy()
-       station_rho_values["pixel_id"] = station_rho_values["pixel_id"].astype(int)
+        if station_values.empty:
+            return None
+        station_values["pixel_id"] = station_values["pixel_id"].astype(int)
+        return station_values
+
+    station_rho_source = rho_table
+    if reference_rho_csv_path is not None:
+        reference_rho_csv_path = Path(reference_rho_csv_path)
+        if reference_rho_csv_path.exists():
+            try:
+                station_rho_source = pd.read_csv(reference_rho_csv_path)
+            except Exception as exc:
+                print(
+                    "Impossibile leggere il CSV completo per i plot rho delle stazioni di riferimento "
+                    f"({reference_rho_csv_path}): {exc}. Uso {rho_csv_path}."
+                )
+        else:
+            print(
+                "CSV completo per i plot rho delle stazioni di riferimento non trovato: "
+                f"{reference_rho_csv_path}. Uso {rho_csv_path}."
+            )
+
+    station_rho_values = _extract_station_rho_values(station_rho_source)
 
     coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
     merged = coords.merge(rho_values, on="pixel_id", how="inner")
@@ -3566,6 +3594,7 @@ else:
                                     rho_csv_path,
                                     PIXEL_TABLE_OUTPUT,
                                     branches,
+                                    reference_rho_csv_path=model_output,
                                     transform=grid.affine,
                                     dem_background=inflated_dem_masked,
                                     dem_extent=grid.extent,
