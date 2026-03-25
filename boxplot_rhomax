@@ -1,0 +1,93 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Mar 25 19:00:06 2026
+
+@author: loren
+
+Crea un boxplot della distribuzione di una colonna (es. rho_1_max)
+partendo da un file CSV.
+
+Configurazione richiesta all'inizio dello script:
+- CSV_PATH: percorso del file .csv di input
+- COLUMN_NAME: nome della colonna da plottare
+"""
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+CSV_PATH = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\rhomax_annual.csv")
+COLUMN_NAME = "rho_1_max"
+OUTPUT_PLOT_PATH = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\boxplot_rho_1_max.png")
+
+# Stile grafico
+FIGSIZE = (6, 6)
+BOX_STYLE = {
+    "facecolor": "#1f77b4",
+    "edgecolor": "#000000",
+    "linewidth": 1.2,
+}
+COMMON_LINE_STYLE = {"color": "#000000", "linewidth": 1.2}
+MEDIAN_STYLE = {"color": "#000000", "linewidth": 1.6}
+
+
+def load_numeric_series(csv_path: str | Path, column_name: str) -> pd.Series:
+    df = pd.read_csv(csv_path)
+
+    if column_name not in df.columns:
+        available = ", ".join(map(str, df.columns.tolist()))
+        raise ValueError(
+            f"Colonna '{column_name}' non trovata nel CSV. "
+            f"Colonne disponibili: {available}"
+        )
+
+    series = pd.to_numeric(df[column_name], errors="coerce").dropna()
+    if series.empty:
+        raise ValueError(
+            f"La colonna '{column_name}' non contiene valori numerici validi."
+        )
+
+    return series
+
+
+def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Path) -> Path:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    ax.boxplot(
+        [series.tolist()],
+        labels=[column_name],
+        whis=(0, 100),
+        showmeans=False,
+        showfliers=False,
+        patch_artist=True,
+        boxprops=BOX_STYLE,
+        whiskerprops=COMMON_LINE_STYLE,
+        capprops=COMMON_LINE_STYLE,
+        medianprops=MEDIAN_STYLE,
+    )
+
+    ax.set_ylabel(column_name)
+    ax.set_title(f"Distribuzione di {column_name}")
+    ax.grid(axis="y", alpha=0.25)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+    return output_path
+
+
+def main() -> None:
+    series = load_numeric_series(CSV_PATH, COLUMN_NAME)
+    saved_plot = create_boxplot(series, column_name=COLUMN_NAME, output_path=OUTPUT_PLOT_PATH)
+
+    print("Boxplot creato con successo:")
+    print(saved_plot)
+    print(f"Numero valori usati: {len(series)}")
+
+
+if __name__ == "__main__":
+    main()
