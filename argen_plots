@@ -103,7 +103,7 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf_values = [0.834]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
+rho_max_inf_values = [0.834, 0.850, 0.865, 0.893]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
 rho_max_sup = 0.941
 
 rho_mean_inf = 0.832074078
@@ -737,13 +737,13 @@ def plot_rho_pixels_on_network(
                 label="Flow measuring stations",
                 zorder=7,
             )
-            ax.legend(loc="lower left", fontsize=9, frameon=True)
+            ax.legend(loc="upper right", fontsize=9, frameon=True)
 
         sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
         sm.set_array([])
         return sm
     
-    vmin = 0.8
+    vmin = 0.75
     vmax = 1.0
 
     fig, ax = plt.subplots(figsize=(8.5, 6.5))
@@ -755,7 +755,7 @@ def plot_rho_pixels_on_network(
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
-    add_scale_bar(ax, grid.affine, location="upper left")
+    add_scale_bar(ax, grid.affine, location="lower left")
     plt.show()
     
     rho_max_inf_list = _normalize_threshold_list(rho_max_inf_values, name="rho_max_inf_values")
@@ -788,7 +788,7 @@ def plot_rho_pixels_on_network(
         cbar.ax.tick_params(labelsize=9)
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
-        add_scale_bar(ax, grid.affine, location="upper left")
+        add_scale_bar(ax, grid.affine, location="lower left")
         plt.show()
 
     def _plot_single_series(
@@ -851,7 +851,7 @@ def plot_rho_pixels_on_network(
                 legend_handles.append(station_scatter)
 
             if legend_handles:
-                ax.legend(handles=legend_handles, loc="lower left", fontsize=9, frameon=True)
+                ax.legend(handles=legend_handles, loc="upper right", fontsize=9, frameon=True)
 
             return scatter_plot
         
@@ -864,7 +864,7 @@ def plot_rho_pixels_on_network(
         cbar.ax.tick_params(labelsize=9)
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
-        add_scale_bar(ax, grid.affine, location="upper left")
+        add_scale_bar(ax, grid.affine, location="lower left")
         if column == "rho_1_mean":
             ax.set_title(
                 (
@@ -907,7 +907,7 @@ def plot_rho_pixels_on_network(
             print(f"Nessun valore disponibile per il plot {cbar_label}.")
             continue
 
-        vmin = 0.8
+        vmin = 0.75
         vmax = 1.0
 
         fig, ax = plt.subplots(figsize=(8.5, 6.5))
@@ -923,7 +923,7 @@ def plot_rho_pixels_on_network(
         cbar.ax.tick_params(labelsize=9)
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
-        add_scale_bar(ax, grid.affine, location="upper left")
+        add_scale_bar(ax, grid.affine, location="lower left")
         plt.show()
     
 def _load_station_points(meta_path: Path):
@@ -1465,7 +1465,7 @@ basin_extension_legend = Patch(
 _set_extent_limits(ax, grid.extent)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
+add_scale_bar(ax, grid.affine, location='lower left')
 add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
 ax.legend(handles=[outlet_scatter, basin_extension_legend], loc='upper right')
 plt.tight_layout()
@@ -1505,7 +1505,7 @@ ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
 add_scale_bar(ax, grid.affine, location='lower left')
 add_vertical_colorbar(fig, ax, dem_im, 'Elevation')
-ax.legend(loc='upper center')
+ax.legend(loc='upper right')
 plt.tight_layout()
 plt.show()
 
@@ -2768,9 +2768,10 @@ if selected_snapped_coords.size:
         zorder=5,
         label="Test sections",
     )
-ax.set_xlabel("longitude")
-ax.set_ylabel("latitude")
-ax.legend(loc="best")
+ax.set_xlabel("Longitude")
+ax.set_ylabel("Latitude")
+add_scale_bar(ax, grid.affine, location='lower left')
+ax.legend(loc="upper right")
 #%%% plot rete con solo le stazioni
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
 plt.xlim(grid.bbox[0], grid.bbox[2])
@@ -2803,12 +2804,13 @@ if station_snapped_coords.size:
     )
 ax.set_xlabel("longitude")
 ax.set_ylabel("latitude")
-ax.legend(loc="lower left")
+ax.legend(loc="upper right")
 
 #%%% plot rete con solo i pixel selezionati
 fig, ax = plt.subplots(figsize=(8.5, 6.5))
 plt.xlim(grid.bbox[0], grid.bbox[2])
 plt.ylim(grid.bbox[1], grid.bbox[3])
+add_scale_bar(ax, grid.affine, location='lower left')
 ax.set_aspect('equal')
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
@@ -3001,8 +3003,8 @@ def plot_catchment_i(catchment_id,
 
     ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
     ax.set_xlabel("x"); ax.set_ylabel("y")
-    add_scale_bar(ax, transform_view, location='upper left')
-    ax.legend(loc="lower left")
+    add_scale_bar(ax, transform_view, location='lower left')
+    ax.legend(loc="upper right")
     plt.show()
     
 def plot_selected_pixel_catchment(
@@ -3122,8 +3124,8 @@ def plot_selected_pixel_catchment(
     ax.set_ylim(ymin, ymax)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
-    add_scale_bar(ax, transform_view, location="upper left")
-    ax.legend(loc="lower left")
+    add_scale_bar(ax, transform_view, location="lower left")
+    ax.legend(loc="upper right")
     plt.show()
 
     
