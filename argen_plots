@@ -464,30 +464,29 @@ def plot_rho_pixels_on_network(
     rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
     
     station_rho_values = None
-    if station_col is not None and (rho_pair_col is not None or rho_max_col is not None):
-        station_rho_col = rho_pair_col if rho_pair_col is not None else rho_max_col
-        station_rho_values = rho_table[[pixel_id_col, station_col, station_rho_col]].copy()
-        station_rho_values = station_rho_values.rename(
-            columns={
-                pixel_id_col: "pixel_id",
-                station_col: "station_id",
-                station_rho_col: "rho_station_ref",
+    if station_col is not None and rho_pair_col is not None:
+       station_rho_values = rho_table[[pixel_id_col, station_col, rho_pair_col]].copy()
+       station_rho_values = station_rho_values.rename(
+           columns={
+               pixel_id_col: "pixel_id",
+               station_col: "station_id",
+               rho_pair_col: "rho_station_ref",
             }
-        )
-        station_rho_values["pixel_id"] = station_rho_values["pixel_id"].apply(_normalize_pixel_id)
-        station_rho_values["station_id"] = station_rho_values["station_id"].apply(
+)
+       station_rho_values["pixel_id"] = station_rho_values["pixel_id"].apply(_normalize_pixel_id)
+       station_rho_values["station_id"] = station_rho_values["station_id"].apply(
             _normalize_station_id
         )
-        station_rho_values["rho_station_ref"] = pd.to_numeric(
+       station_rho_values["rho_station_ref"] = pd.to_numeric(
             station_rho_values["rho_station_ref"], errors="coerce"
         )
-        station_rho_values = station_rho_values.dropna(
+       station_rho_values = station_rho_values.dropna(
             subset=["pixel_id", "station_id", "rho_station_ref"]
         )
-        station_rho_values = station_rho_values[
+       station_rho_values = station_rho_values[
             station_rho_values["station_id"] != ""
         ].copy()
-        station_rho_values["pixel_id"] = station_rho_values["pixel_id"].astype(int)
+       station_rho_values["pixel_id"] = station_rho_values["pixel_id"].astype(int)
 
     coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
     merged = coords.merge(rho_values, on="pixel_id", how="inner")
@@ -826,8 +825,7 @@ def plot_rho_pixels_on_network(
             return
         if station_rho_values is None or station_rho_values.empty:
             print(
-                "CSV rho senza colonne station_id/rho_1: impossibile creare i plot per stazione di riferimento."
-            )
+                "CSV rho senza colonne station_id e rho_1: impossibile creare i plot per stazione di riferimento.")
             return
 
         for station_id in reference_station_ids:
