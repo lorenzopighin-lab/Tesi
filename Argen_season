@@ -840,7 +840,7 @@ def plot_rho_pixels_on_network(
         )
         plt.show()
         
-        if dem_background is not None and dem_extent is not None:
+        if column != "rho_1_max" and dem_background is not None and dem_extent is not None:
             fig, ax = plt.subplots(figsize=(8.5, 6.5))
             ax.set_xlim(grid.extent[0], grid.extent[1])
             ax.set_ylim(grid.extent[2], grid.extent[3])
@@ -897,7 +897,36 @@ def plot_rho_pixels_on_network(
             label=label,
             title_suffix=title_suffix,
         )
-    
+        
+    if rho_diff_merged is not None and not rho_diff_merged["rho_max_difference"].dropna().empty:
+        fig, ax = plt.subplots(figsize=(8.5, 6.5))
+        ax.set_xlim(grid.bbox[0], grid.bbox[2])
+        ax.set_ylim(grid.bbox[1], grid.bbox[3])
+        ax.set_aspect("equal")
+        diff_norm = colors.TwoSlopeNorm(vmin=-0.05, vcenter=0.0, vmax=0.05)
+        diff_cmap = plt.cm.brg
+        rho_diff_network = _plot_rho_network_colored(
+            ax,
+            column="rho_max_difference",
+            source_df=rho_diff_merged,
+            cmap=diff_cmap,
+            norm=diff_norm,
+        )
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="4%", pad=0.1)
+        cbar = fig.colorbar(rho_diff_network, cax=cax)
+        cbar.set_label(r"$\rho_{\max}$ seasonal variation")
+        cbar.ax.tick_params(labelsize=9)
+        add_scale_bar(
+            ax,
+            grid.affine,
+            preferred_lengths_meters=[10000],
+            location="lower left",
+        )
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        plt.show()
+        
     f_branch_plots = [
         ("F_lambda", label_f_lambda),
         ("F_alpha", label_f_alpha),
@@ -923,35 +952,6 @@ def plot_rho_pixels_on_network(
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
         add_scale_bar(ax, grid.affine, location="lower left")
-        plt.show()
-        
-    if rho_diff_merged is not None and not rho_diff_merged["rho_max_difference"].dropna().empty:
-        fig, ax = plt.subplots(figsize=(8.5, 6.5))
-        ax.set_xlim(grid.bbox[0], grid.bbox[2])
-        ax.set_ylim(grid.bbox[1], grid.bbox[3])
-        ax.set_aspect("equal")
-        diff_norm = colors.TwoSlopeNorm(vmin=-0.05, vcenter=0.0, vmax=0.05)
-        diff_cmap = plt.cm.bwr
-        rho_diff_network = _plot_rho_network_colored(
-            ax,
-            column="rho_max_difference",
-            source_df=rho_diff_merged,
-            cmap=diff_cmap,
-            norm=diff_norm,
-        )
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="4%", pad=0.1)
-        cbar = fig.colorbar(rho_diff_network, cax=cax)
-        cbar.set_label(r"$\rho_{\max}$ seasonal variation")
-        cbar.ax.tick_params(labelsize=9)
-        add_scale_bar(
-            ax,
-            grid.affine,
-            preferred_lengths_meters=[10000],
-            location="lower left",
-        )
-        ax.set_xlabel("Longitude")
-        ax.set_ylabel("Latitude")
         plt.show()
     
 def _normalize_pixel_id_generic(value) -> int | None:
