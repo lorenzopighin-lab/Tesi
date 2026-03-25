@@ -61,6 +61,11 @@ INTERMEDIATE_SPACING_METERS = 1500.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
+REFERENCE_RHO_STATIONS = [   #per i plot della rete riferiti a singole stazioni
+    "catchment_DE111140",
+    "catchment_DE110950",
+    "catchment_DE111230",
+]
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/selected_pixels_table.csv")
@@ -385,6 +390,18 @@ def plot_rho_pixels_on_network(
     dem_background=None,
     dem_extent=None,
 ):
+    reference_station_ids = [
+        str(station_id).strip()
+        for station_id in REFERENCE_RHO_STATIONS
+        if str(station_id).strip()
+    ]
+
+    if len(reference_station_ids) > 3:
+        print(
+            "REFERENCE_RHO_STATIONS contiene più di 3 stazioni: verranno usate solo le prime 3."
+        )
+        reference_station_ids = reference_station_ids[:3]
+    
     def _normalize_pixel_id(value) -> int | None:
         if value is None or (isinstance(value, float) and np.isnan(value)):
             return None
@@ -400,24 +417,26 @@ def plot_rho_pixels_on_network(
     
     rho_table = pd.read_csv(rho_csv_path)
     pixel_id_col = _find_column(rho_table, ["Pixel_id", "pixel_id", "id"])
+    station_col = _find_column(rho_table, ["station_id", "Station_id", "station"])
+    rho_pair_col = _find_column(rho_table, ["rho_1"])
     rho_max_col = _find_column(rho_table, ["rho_1_max"])
     rho_mean_col = _find_column(rho_table, ["rho_1_mean"])
     f_lambda_col = _find_column(rho_table, ["F_lambda", "f_lambda"])
     f_alpha_col = _find_column(rho_table, ["F_alpha", "f_alpha"])
 
-    missing_cols = [
-        name
-        for name, col in (("pixel_id", pixel_id_col), ("rho_1_max", rho_max_col), ("rho_1_mean", rho_mean_col))
-        if col is None
-    ]
+    missing_cols = [name for name, col in (("pixel_id", pixel_id_col),) if col is None]
+    if rho_max_col is None and rho_pair_col is None:
+        missing_cols.append("rho_1 (oppure rho_1_max)")
+    if rho_mean_col is None:
+        missing_cols.append("rho_1_mean")
     if missing_cols:
         raise KeyError(
             "Colonne mancanti nel CSV rho: " + ", ".join(missing_cols)
         )
 
-    rho_values = rho_table[
-        [pixel_id_col, rho_max_col, rho_mean_col, f_lambda_col, f_alpha_col]
-    ].copy()
+    rho_values_cols = [pixel_id_col, rho_max_col, rho_mean_col, f_lambda_col, f_alpha_col]
+    rho_values_cols = [col for col in rho_values_cols if col is not None]
+    rho_values = rho_table[rho_values_cols].copy()
     rho_values = rho_values.rename(
         columns={
             pixel_id_col: "pixel_id",
@@ -434,6 +453,30 @@ def plot_rho_pixels_on_network(
     rho_values["F_alpha"] = pd.to_numeric(rho_values["F_alpha"], errors="coerce")
     rho_values = rho_values.dropna(subset=["pixel_id"])
     rho_values["pixel_id"] = rho_values["pixel_id"].astype(int)
+    
+    station_rho_values = None
+    if station_col is not None and (rho_pair_col is not None or rho_max_col is not None):
+        station_rho_col = rho_pair_col if rho_pair_col is not None else rho_max_col
+        station_rho_values = rho_table[[pixel_id_col, station_col, station_rho_col]].copy()
+        station_rho_values = station_rho_values.rename(
+            columns={
+                pixel_id_col: "pixel_id",
+                station_col: "station_id",
+                station_rho_col: "rho_station_ref",
+            }
+        )
+        station_rho_values["pixel_id"] = station_rho_values["pixel_id"].apply(_normalize_pixel_id)
+        station_rho_values["station_id"] = station_rho_values["station_id"].astype(str).str.strip()
+        station_rho_values["rho_station_ref"] = pd.to_numeric(
+            station_rho_values["rho_station_ref"], errors="coerce"
+        )
+        station_rho_values = station_rho_values.dropna(
+            subset=["pixel_id", "station_id", "rho_station_ref"]
+        )
+        station_rho_values = station_rho_values[
+            station_rho_values["station_id"] != ""
+        ].copy()
+        station_rho_values["pixel_id"] = station_rho_values["pixel_id"].astype(int)
 
     coords = _load_selected_pixel_coords(pixel_table_path, transform=transform)
     merged = coords.merge(rho_values, on="pixel_id", how="inner")
@@ -743,8 +786,96 @@ def plot_rho_pixels_on_network(
         sm.set_array([])
         return sm
     
+    def _get_reference_station_coords(station_id: str):
+        if station_points_for_plot:
+            for pt in station_points_for_plot:
+                station_text = str(pt.get("station_id") or "").strip()
+                if station_text == station_id:
+                    snapped = pt.get("snapped_coord")
+                    if snapped and len(snapped) == 2:
+                        try:
+                            return float(snapped[0]), float(snapped[1])
+                        except (TypeError, ValueError):
+                            pass
+        if station_metadata:
+            for rec in station_metadata:
+                station_text = str(rec.get("station_id") or "").strip()
+                if station_text == station_id:
+                    try:
+                        return float(rec.get("lon")), float(rec.get("lat"))
+                    except (TypeError, ValueError):
+                        return None
+        return None
+
+    def _plot_reference_station_rho():
+        if not reference_station_ids:
+            print(
+                "REFERENCE_RHO_STATIONS non configurata: salto i plot rho per stazione di riferimento."
+            )
+            return
+        if station_rho_values is None or station_rho_values.empty:
+            print(
+                "CSV rho senza colonne station_id/rho_1: impossibile creare i plot per stazione di riferimento."
+            )
+            return
+
+        for station_id in reference_station_ids:
+            station_df = station_rho_values[station_rho_values["station_id"] == station_id]
+            if station_df.empty:
+                print(f"Nessun valore rho trovato per la stazione di riferimento '{station_id}'.")
+                continue
+
+            merged_station = coords.merge(station_df, on="pixel_id", how="inner")
+            if merged_station.empty:
+                print(f"Nessun pixel associato alla stazione di riferimento '{station_id}'.")
+                continue
+
+            ref_coords = _get_reference_station_coords(station_id)
+            fig, ax = plt.subplots(figsize=(8.5, 6.5))
+            ax.set_xlim(grid.bbox[0], grid.bbox[2])
+            ax.set_ylim(grid.bbox[1], grid.bbox[3])
+            ax.set_aspect("equal")
+            rho_network = _plot_rho_network_colored(
+                ax,
+                column="rho_station_ref",
+                source_df=merged_station,
+                show_flow_stations=False,
+            )
+            cbar = add_vertical_colorbar(fig, ax, rho_network, r"$\rho$")
+            cbar.ax.tick_params(labelsize=9)
+            ax.set_xlabel("Longitude")
+            ax.set_ylabel("Latitude")
+            add_scale_bar(
+                ax,
+                grid.affine,
+                preferred_lengths_meters=[10000],
+                location="lower left",
+            )
+
+            if ref_coords is not None:
+                ax.scatter(
+                    ref_coords[0],
+                    ref_coords[1],
+                    s=55,
+                    marker="^",
+                    c="red",
+                    edgecolors="k",
+                    linewidths=0.3,
+                    label="Reference FMS",
+                    zorder=8,
+                )
+                ax.legend(loc="upper right", fontsize=9, frameon=True)
+            else:
+                print(
+                    f"Coordinate non trovate per la stazione di riferimento '{station_id}'."
+                )
+
+            plt.show()
+    
     vmin = 0.75
     vmax = 1.0
+
+    _plot_reference_station_rho()
 
     fig, ax = plt.subplots(figsize=(8.5, 6.5))
     ax.set_xlim(grid.bbox[0], grid.bbox[2])
