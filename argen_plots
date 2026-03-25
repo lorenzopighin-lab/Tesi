@@ -390,10 +390,19 @@ def plot_rho_pixels_on_network(
     dem_background=None,
     dem_extent=None,
 ):
+    def _normalize_station_id(value: object) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if not text:
+            return ""
+        if text.lower().startswith("catchment_"):
+            text = text.split("_", 1)[1].strip()
+        return text
     reference_station_ids = [
-        str(station_id).strip()
+        _normalize_station_id(station_id)
         for station_id in REFERENCE_RHO_STATIONS
-        if str(station_id).strip()
+        if _normalize_station_id(station_id)
     ]
 
     if len(reference_station_ids) > 3:
@@ -466,7 +475,9 @@ def plot_rho_pixels_on_network(
             }
         )
         station_rho_values["pixel_id"] = station_rho_values["pixel_id"].apply(_normalize_pixel_id)
-        station_rho_values["station_id"] = station_rho_values["station_id"].astype(str).str.strip()
+        station_rho_values["station_id"] = station_rho_values["station_id"].apply(
+            _normalize_station_id
+        )
         station_rho_values["rho_station_ref"] = pd.to_numeric(
             station_rho_values["rho_station_ref"], errors="coerce"
         )
@@ -789,7 +800,7 @@ def plot_rho_pixels_on_network(
     def _get_reference_station_coords(station_id: str):
         if station_points_for_plot:
             for pt in station_points_for_plot:
-                station_text = str(pt.get("station_id") or "").strip()
+                station_text = _normalize_station_id(pt.get("station_id"))
                 if station_text == station_id:
                     snapped = pt.get("snapped_coord")
                     if snapped and len(snapped) == 2:
@@ -799,7 +810,7 @@ def plot_rho_pixels_on_network(
                             pass
         if station_metadata:
             for rec in station_metadata:
-                station_text = str(rec.get("station_id") or "").strip()
+                station_text = _normalize_station_id(rec.get("station_id"))
                 if station_text == station_id:
                     try:
                         return float(rec.get("lon")), float(rec.get("lat"))
