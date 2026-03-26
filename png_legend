@@ -14,11 +14,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 LEGEND_ITEMS = [
-    ( "1", (255, 0, 0)),
-    ( "2", (255, 255, 0)),
-    ( "3", (0, 170, 0)),
-    ( "4", (0, 191, 255)),
-    ( "5", (128, 0, 128)),
+    ( "Artificial surface", (255, 0, 0)),
+    ( "Aricultural areas", (255, 255, 0)),
+    ( "Forest and natural areas", (0, 170, 0)),
+    ( "Water bodies", (0, 191, 255)),
+    ( "Wetlands", (128, 0, 128)),
 ]
 
 # Imposta qui i percorsi di default.
@@ -45,8 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--position",
         choices=["top-left", "top-right", "bottom-left", "bottom-right"],
-        default="bottom-right",
-        help="Posizione della legenda (default: bottom-right)",
+        default="top-right",
+        help="Posizione della legenda (default: top-right)",
     )
     parser.add_argument("--margin", type=int, default=20, help="Margine dai bordi (px)")
     parser.add_argument("--box-size", type=int, default=24, help="Lato rettangolo colorato (px)")
@@ -124,7 +124,7 @@ def add_legend(
         [(x, y), (x + legend_w, y + legend_h)],
         radius=10,
         fill=(255, 255, 255, 235),
-        outline=(0, 0, 0, 255),
+        outline=(128, 128, 128, 255),
         width=2,
     )
 
