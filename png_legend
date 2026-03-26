@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Mar 26 18:51:39 2026
+
+@author: loren
+"""
+"""Aggiunge una legenda con rettangoli colorati a un'immagine PNG.
+
+Legenda predefinita:
+- Rosso: 1
+- Giallo: 2
+- Verde: 3
+- Azzurro: 4
+- Viola: 5
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+
+LEGEND_ITEMS = [
+    ("Rosso", "1", (255, 0, 0)),
+    ("Giallo", "2", (255, 255, 0)),
+    ("Verde", "3", (0, 170, 0)),
+    ("Azzurro", "4", (0, 191, 255)),
+    ("Viola", "5", (128, 0, 128)),
+]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Aggiunge la legenda a un PNG")
+    parser.add_argument("input_png", type=Path, help="Percorso immagine di input (PNG)")
+    parser.add_argument("output_png", type=Path, help="Percorso immagine di output (PNG)")
+    parser.add_argument(
+        "--position",
+        choices=["top-left", "top-right", "bottom-left", "bottom-right"],
+        default="bottom-right",
+        help="Posizione della legenda (default: bottom-right)",
+    )
+    parser.add_argument("--margin", type=int, default=20, help="Margine dai bordi (px)")
+    parser.add_argument("--box-size", type=int, default=24, help="Lato rettangolo colorato (px)")
+    parser.add_argument("--line-gap", type=int, default=10, help="Spazio verticale tra righe (px)")
+    parser.add_argument("--padding", type=int, default=12, help="Padding interno del riquadro legenda (px)")
+    parser.add_argument(
+        "--font-size", type=int, default=24, help="Dimensione font (px, default: 24)"
+    )
+    return parser.parse_args()
+
+
+def get_font(size: int) -> ImageFont.ImageFont:
+    for font_name in ("DejaVuSans.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(font_name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> tuple[int, int]:
+    x0, y0, x1, y1 = draw.textbbox((0, 0), text, font=font)
+    return x1 - x0, y1 - y0
+
+
+def compute_legend_box(
+    draw: ImageDraw.ImageDraw,
+    font: ImageFont.ImageFont,
+    box_size: int,
+    line_gap: int,
+    padding: int,
+) -> tuple[int, int]:
+    text_width = 0
+    text_height = 0
+    for color_name, number, _ in LEGEND_ITEMS:
+        row_text = f"{color_name} : {number}"
+        w, h = measure_text(draw, row_text, font)
+        text_width = max(text_width, w)
+        text_height = max(text_height, h)
+
+    row_height = max(box_size, text_height)
+    legend_width = padding * 2 + box_size + 12 + text_width
+    legend_height = padding * 2 + len(LEGEND_ITEMS) * row_height + (len(LEGEND_ITEMS) - 1) * line_gap
+    return legend_width, legend_height
+
+
+def anchor_xy(img_w: int, img_h: int, legend_w: int, legend_h: int, margin: int, pos: str) -> tuple[int, int]:
+    if pos == "top-left":
+        return margin, margin
+    if pos == "top-right":
+        return img_w - legend_w - margin, margin
+    if pos == "bottom-left":
+        return margin, img_h - legend_h - margin
+    return img_w - legend_w - margin, img_h - legend_h - margin
+
+
+def add_legend(
+    image: Image.Image,
+    position: str,
+    margin: int,
+    box_size: int,
+    line_gap: int,
+    padding: int,
+    font_size: int,
+) -> Image.Image:
+    img = image.convert("RGBA")
+    draw = ImageDraw.Draw(img)
+    font = get_font(font_size)
+
+    legend_w, legend_h = compute_legend_box(draw, font, box_size, line_gap, padding)
+    x, y = anchor_xy(img.width, img.height, legend_w, legend_h, margin, position)
+
+    # sfondo bianco semi-trasparente con bordo nero
+    draw.rounded_rectangle(
+        [(x, y), (x + legend_w, y + legend_h)],
+        radius=10,
+        fill=(255, 255, 255, 235),
+        outline=(0, 0, 0, 255),
+        width=2,
+    )
+
+    # righe legenda
+    cursor_y = y + padding
+    for color_name, number, rgb in LEGEND_ITEMS:
+        text = f"{color_name} : {number}"
+        tw, th = measure_text(draw, text, font)
+        row_h = max(box_size, th)
+
+        box_y = cursor_y + (row_h - box_size) // 2
+        draw.rectangle(
+            [(x + padding, box_y), (x + padding + box_size, box_y + box_size)],
+            fill=rgb + (255,),
+            outline=(0, 0, 0, 255),
+            width=1,
+        )
+
+        text_x = x + padding + box_size + 12
+        text_y = cursor_y + (row_h - th) // 2
+        draw.text((text_x, text_y), text, fill=(0, 0, 0, 255), font=font)
+
+        cursor_y += row_h + line_gap
+
+    return img.convert("RGB")
+
+
+def main() -> None:
+    args = parse_args()
+
+    if args.input_png.suffix.lower() != ".png":
+        raise SystemExit("L'input deve essere un file PNG.")
+
+    image = Image.open(args.input_png)
+    out = add_legend(
+        image=image,
+        position=args.position,
+        margin=args.margin,
+        box_size=args.box_size,
+        line_gap=args.line_gap,
+        padding=args.padding,
+        font_size=args.font_size,
+    )
+
+    args.output_png.parent.mkdir(parents=True, exist_ok=True)
+    out.save(args.output_png, format="PNG")
+    print(f"Legenda aggiunta con successo: {args.output_png}")
+
+
+if __name__ == "__main__":
+    main()
