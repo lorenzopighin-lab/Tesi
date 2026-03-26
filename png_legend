@@ -1,38 +1,47 @@
 # -*- coding: utf-8 -*-
+
 """
 Created on Thu Mar 26 18:51:39 2026
 
 @author: loren
 """
-"""Aggiunge una legenda con rettangoli colorati a un'immagine PNG.
-
-Legenda predefinita:
-- Rosso: 1
-- Giallo: 2
-- Verde: 3
-- Azzurro: 4
-- Viola: 5
-"""
 
 from __future__ import annotations
+
 
 import argparse
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 LEGEND_ITEMS = [
-    ("Rosso", "1", (255, 0, 0)),
-    ("Giallo", "2", (255, 255, 0)),
-    ("Verde", "3", (0, 170, 0)),
-    ("Azzurro", "4", (0, 191, 255)),
-    ("Viola", "5", (128, 0, 128)),
+    ( "1", (255, 0, 0)),
+    ( "2", (255, 255, 0)),
+    ( "3", (0, 170, 0)),
+    ( "4", (0, 191, 255)),
+    ( "5", (128, 0, 128)),
 ]
 
+# Imposta qui i percorsi di default.
+# Possono essere sovrascritti passando gli argomenti da riga di comando.
+INPUT_PNG = Path("C:/Users/loren/Desktop/landuse/argen_landuse.png")
+OUTPUT_PNG = Path("C:/Users/loren/Desktop/landuse/output_con_legenda.png")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Aggiunge la legenda a un PNG")
-    parser.add_argument("input_png", type=Path, help="Percorso immagine di input (PNG)")
-    parser.add_argument("output_png", type=Path, help="Percorso immagine di output (PNG)")
+    parser.add_argument(
+        "input_png",
+        nargs="?",
+        type=Path,
+        default=INPUT_PNG,
+        help=f"Percorso immagine di input (PNG, default: {INPUT_PNG})",
+    )
+    parser.add_argument(
+        "output_png",
+        nargs="?",
+        type=Path,
+        default=OUTPUT_PNG,
+        help=f"Percorso immagine di output (PNG, default: {OUTPUT_PNG})",
+    )
     parser.add_argument(
         "--position",
         choices=["top-left", "top-right", "bottom-left", "bottom-right"],
