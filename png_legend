@@ -81,8 +81,8 @@ def compute_legend_box(
 ) -> tuple[int, int]:
     text_width = 0
     text_height = 0
-    for color_name, number, _ in LEGEND_ITEMS:
-        row_text = f"{color_name} : {number}"
+    for number, _ in LEGEND_ITEMS:
+        row_text = str(number)
         w, h = measure_text(draw, row_text, font)
         text_width = max(text_width, w)
         text_height = max(text_height, h)
@@ -130,8 +130,8 @@ def add_legend(
 
     # righe legenda
     cursor_y = y + padding
-    for color_name, number, rgb in LEGEND_ITEMS:
-        text = f"{color_name} : {number}"
+    for number, rgb in LEGEND_ITEMS:
+        text = str(number)
         tw, th = measure_text(draw, text, font)
         row_h = max(box_size, th)
 
