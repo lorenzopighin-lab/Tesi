@@ -29,11 +29,11 @@ from Model_2 import run_model
 
 # --- Configurazione generale ---
 
-dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE411220.tif"
-POUR_POINT = array.array('f', [13.116304, 52.362773])
-SNAP_ACCUMULATION_THRESHOLD = 8000
-BRANCH_ACCUMULATION_THRESHOLD = 6000
-MIN_ACCUMULATION_KM2 = 25
+dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE12030.tif"
+POUR_POINT = array.array('f', [8.710165, 52.197884	])
+SNAP_ACCUMULATION_THRESHOLD = 9000
+BRANCH_ACCUMULATION_THRESHOLD = 5000
+MIN_ACCUMULATION_KM2 = 10
 
 
 # --- Parametri dimensionali ---
@@ -54,16 +54,18 @@ MAX_INTERMEDIATE_PIXELS = 2
 INTERMEDIATE_SPACING_METERS = 600.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 5000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 5000.0
-TARGET_STATION_ID = "DE412310"
+TARGET_STATION_ID = ""
+
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("selected_pixels_table.csv")
+
 # --- Configurazione piogge medie per catchment ---
 # Stazioni attuali usate come sezioni di chiusura.
-STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE411220.csv")
+STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DEA12030.csv")
 # Inserire qui il path alla cartella con i file .txt delle precipitazioni (uno per stazione).
-PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE411220")
+PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DEA12030")
 # Inserire qui il path al CSV con le colonne ID, Lon, Lat delle stazioni di precipitazione.
-PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE411220.csv")
+PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DEA12030.csv")
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
 PRECIP_BUFFER_METERS = 20000.0
@@ -71,11 +73,9 @@ PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
-MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]  # soglie da applicare quando si lancia Model_1
-CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DE411220/model_2_linear")
-
-
+MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]  # soglie da applicare quando si lancia Model_1
+CATCHMENT_SERIES_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/werre_gaus_catchment_precipitation.csv")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/DEA12030/model_2_gaussian")
 
 # --- Opzioni Kriging ---
 RUN_KRIGING = True  # Imposta a False per saltare il calcolo delle precipitazioni
@@ -84,7 +84,7 @@ PROMPT_KRIGING_CATCHMENTS = True  # Chiedi da input gli ID dei catchment da inte
 KRIGING_CATCHMENT_IDS = None
 PROMPT_PLOT_PRECIPITATION = True
 PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul bacino principale
-PLOT_PRECIPITATION_RANGE = ("2004-10-01", "2004-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
+PLOT_PRECIPITATION_RANGE = ("2018-01-01", "2018-01-20")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -717,7 +717,7 @@ if (
 ax.set_title('Catchment con stazioni di precipitazione', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
+add_scale_bar(ax, grid.affine, location='lower left')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
 ax.legend(loc='upper right')
 plt.tight_layout()
@@ -766,7 +766,7 @@ if (
 ax.set_title('Catchment e stazioni di precipitazione', size=14)
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
-add_scale_bar(ax, grid.affine, location='lower right')
+add_scale_bar(ax, grid.affine, location='lower left')
 plt.colorbar(dem_im, ax=ax, label='Elevation')
 plt.tight_layout()
 #%%branches
@@ -1345,8 +1345,8 @@ ax.imshow(
     np.where(mask_view, 1.0, np.nan),
     extent=(xmin, xmax, ymin, ymax),
     origin="upper",
-    cmap="Greys",
-    alpha=0.35,
+    cmap=colors.ListedColormap(["#d9d9d9"]),
+    alpha=0.28,
     zorder=1,
 )
 
@@ -1370,7 +1370,8 @@ add_scale_bar(
     location="lower left",
     pixel_size_meters=PIXEL_SIZE_METERS,
 )
-
+# Rimuove assi e cornici: mostra solo bacino, rete, stazioni e scala.
+ax.set_axis_off()
 #%%%controllo pixels
 count_ones = np.sum(branches_raster > 0)
 selected_count = pixels_selected.sum()
@@ -1532,7 +1533,7 @@ def plot_catchment_i(catchment_id,
     plt.show()
     
     
-catchment_selection = "catchment_DE411230"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_DEA11970"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
