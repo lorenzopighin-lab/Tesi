@@ -1337,19 +1337,38 @@ plt.xlim(grid.bbox[0], grid.bbox[2])
 plt.ylim(grid.bbox[1], grid.bbox[3])
 ax.set_aspect('equal')
 
+# Bacino principale in grigio sullo sfondo.
+mask_view = grid.view(catch).astype(bool)
+h_mask, w_mask = mask_view.shape
+xmin, ymin, xmax, ymax = rasterio.transform.array_bounds(h_mask, w_mask, grid.affine)
+ax.imshow(
+    np.where(mask_view, 1.0, np.nan),
+    extent=(xmin, xmax, ymin, ymax),
+    origin="upper",
+    cmap="Greys",
+    alpha=0.35,
+    zorder=1,
+)
+
+# Rete drenante in azzurro sopra il bacino.
 for branch in branches['features']:
     line = np.asarray(branch['geometry']['coordinates'])
-    plt.plot(line[:, 0], line[:, 1])
+    plt.plot(line[:, 0], line[:, 1], color="#4FC3F7", linewidth=1.0, zorder=2)
 
 sc = ax.scatter(
                     [pt["snapped_coord"][0] for pt in catchment_points],
                     [pt["snapped_coord"][1] for pt in catchment_points],
-                    s=18, c='red',
+                    s=24, c='red',
                     edgecolors='k', linewidths=0.3,
-                    zorder=5, label='Pixel selezionati')
-_ = plt.title(
-    f" Selected pixels on channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
-    size=14,
+                    zorder=5)
+
+# Scala fissa da 10 km in basso a sinistra.
+add_scale_bar(
+    ax,
+    grid.affine,
+    preferred_lengths_meters=[10000],
+    location="lower left",
+    pixel_size_meters=PIXEL_SIZE_METERS,
 )
 
 #%%%controllo pixels
