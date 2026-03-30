@@ -11,6 +11,7 @@ import array
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+from matplotlib.collections import LineCollection
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import numpy as np
 import pandas as pd
@@ -800,6 +801,97 @@ _ = plt.title(
     f"Channel network (>{BRANCH_ACCUMULATION_THRESHOLD} accumulation)",
     size=14,
 )
+# Rete colorata in funzione della contributing area
+fig, ax = plt.subplots(figsize=(8.5, 6.5))
+ax.set_xlim(grid.bbox[0], grid.bbox[2])
+ax.set_ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+catch_background = np.ma.masked_where(~catch_view, catch_view.astype(float))
+ax.imshow(
+    catch_background,
+    extent=grid.bbox,
+    origin='upper',
+    cmap=colors.ListedColormap(['#c7c7c7']),
+    zorder=1,
+)
+
+fdir_view = grid.view(fdir)
+transform_view = grid.affine
+shape_view = fdir_view.shape
+shapes = (
+    (feat["geometry"], idx + 1) for idx, feat in enumerate(branches["features"])
+)
+branches_raster = rasterio.features.rasterize(
+    shapes=shapes,
+    out_shape=shape_view,
+    transform=transform_view,
+    fill=0,
+    all_touched=False,
+    dtype="uint16",
+)
+channel_mask = branches_raster.astype(bool)
+acc_view = grid.view(acc)
+
+contributing_area_km2 = (acc_view.astype('float64') * PIXEL_AREA_M2) / 1e6
+channel_area_values = np.where(channel_mask, contributing_area_km2, np.nan)
+channel_min = float(np.nanmin(channel_area_values))
+channel_max = float(np.nanmax(channel_area_values))
+if not np.isfinite(channel_min) or not np.isfinite(channel_max) or channel_min == channel_max:
+    channel_min = 0.0
+    channel_max = max(channel_max, 1.0) if np.isfinite(channel_max) else 1.0
+
+network_cmap = colors.LinearSegmentedColormap.from_list(
+    "light_to_deep_blue",
+    ["#cfefff", "#003a8c"],
+)
+network_norm = colors.Normalize(vmin=channel_min, vmax=channel_max)
+
+segments = []
+segment_values = []
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'], dtype='float64')
+    if line.shape[0] < 2:
+        continue
+    rr, cc = rowcol(grid.affine, line[:, 0], line[:, 1])
+    rr = np.asarray(rr, dtype=int)
+    cc = np.asarray(cc, dtype=int)
+    valid = (rr >= 0) & (rr < acc_view.shape[0]) & (cc >= 0) & (cc < acc_view.shape[1])
+    if not np.any(valid):
+        continue
+    area_samples = contributing_area_km2[rr[valid], cc[valid]]
+    branch_area = float(np.nanmean(area_samples)) if area_samples.size else np.nan
+    if not np.isfinite(branch_area):
+        continue
+    segments.append(np.stack([line[:-1], line[1:]], axis=1))
+    segment_values.append(np.full(line.shape[0] - 1, branch_area, dtype='float64'))
+
+if segments:
+    segments = np.concatenate(segments, axis=0)
+    segment_values = np.concatenate(segment_values, axis=0)
+    line_collection = LineCollection(
+        segments,
+        cmap=network_cmap,
+        norm=network_norm,
+        linewidths=1.8,
+        zorder=3,
+    )
+    line_collection.set_array(segment_values)
+    ax.add_collection(line_collection)
+
+    cbar = fig.colorbar(line_collection, ax=ax, fraction=0.045, pad=0.02)
+    cbar.set_label("Contributing area [km²]")
+
+add_scale_bar(
+    ax,
+    grid.affine,
+    preferred_lengths_meters=[10000],
+    location='lower left',
+)
+ax.set_title("")
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+plt.tight_layout()
 #%% Impostazioni distribuzione pixel lungo i rami
 # I parametri sono definiti nella sezione di configurazione iniziale.
 # Rasterizza la rete per identificare i pixel appartenenti a ciascun ramo.
@@ -1372,6 +1464,7 @@ add_scale_bar(
 )
 # Rimuove assi e cornici: mostra solo bacino, rete, stazioni e scala.
 ax.set_axis_off()
+
 #%%%controllo pixels
 count_ones = np.sum(branches_raster > 0)
 selected_count = pixels_selected.sum()
