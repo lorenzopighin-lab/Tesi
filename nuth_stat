@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from matplotlib.collections import LineCollection
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import pandas as pd
 import rasterio
@@ -857,14 +858,19 @@ for branch in branches['features']:
     rr = np.asarray(rr, dtype=int)
     cc = np.asarray(cc, dtype=int)
     valid = (rr >= 0) & (rr < acc_view.shape[0]) & (cc >= 0) & (cc < acc_view.shape[1])
-    if not np.any(valid):
+    if np.count_nonzero(valid) < 2:
         continue
+    line_valid = line[valid]
     area_samples = contributing_area_km2[rr[valid], cc[valid]]
-    branch_area = float(np.nanmean(area_samples)) if area_samples.size else np.nan
-    if not np.isfinite(branch_area):
+    if line_valid.shape[0] < 2 or area_samples.size < 2:
         continue
-    segments.append(np.stack([line[:-1], line[1:]], axis=1))
-    segment_values.append(np.full(line.shape[0] - 1, branch_area, dtype='float64'))
+    area_segment = 0.5 * (area_samples[:-1] + area_samples[1:])
+    finite = np.isfinite(area_segment)
+    if not np.any(finite):
+        continue
+    branch_segments = np.stack([line_valid[:-1], line_valid[1:]], axis=1)
+    segments.append(branch_segments[finite])
+    segment_values.append(area_segment[finite])
 
 if segments:
     segments = np.concatenate(segments, axis=0)
@@ -873,14 +879,17 @@ if segments:
         segments,
         cmap=network_cmap,
         norm=network_norm,
-        linewidths=1.8,
+        linewidths=2.8,
         zorder=3,
     )
     line_collection.set_array(segment_values)
+    line_collection.set_capstyle("round")
+    line_collection.set_joinstyle("round")
     ax.add_collection(line_collection)
 
-    cbar = fig.colorbar(line_collection, ax=ax, fraction=0.045, pad=0.02)
-    cbar.set_label("Contributing area [km²]")
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="4.8%", pad=0.08)
+    cbar = fig.colorbar(line_collection, cax=cax)
 
 add_scale_bar(
     ax,
@@ -891,6 +900,8 @@ add_scale_bar(
 ax.set_title("")
 ax.set_xlabel('Longitude')
 ax.set_ylabel('Latitude')
+for spine in ax.spines.values():
+    spine.set_visible(False)
 plt.tight_layout()
 #%% Impostazioni distribuzione pixel lungo i rami
 # I parametri sono definiti nella sezione di configurazione iniziale.
