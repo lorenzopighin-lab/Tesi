@@ -31,7 +31,8 @@ BOX_STYLE = {
 }
 COMMON_LINE_STYLE = {"color": "#000000", "linewidth": 1.2}
 MEDIAN_STYLE = {"color": "#000000", "linewidth": 1.6}
-
+BOX_WIDTH = 0.50
+CAP_WIDTH = 0.30
 
 def load_numeric_series(csv_path: str | Path, column_name: str) -> pd.Series:
     df = pd.read_csv(csv_path)
@@ -67,6 +68,8 @@ def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Pa
         whiskerprops=COMMON_LINE_STYLE,
         capprops=COMMON_LINE_STYLE,
         medianprops=MEDIAN_STYLE,
+        widths=BOX_WIDTH,
+        capwidths=CAP_WIDTH,
     )
 
     ax.set_xticks([])
@@ -75,7 +78,7 @@ def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Pa
     ax.yaxis.set_label_position("left")
     ax.yaxis.tick_left()
     
-    percentiles = [5, 10, 15, 20, 25, 50, 75, 85, 95]
+    percentiles = [5, 10, 15, 20, 25, 50, 75, 95]
     percentile_positions = np.percentile(series, percentiles)
 
     percentile_axis = ax.secondary_yaxis("right", functions=(lambda y: y, lambda y: y))
