@@ -4,12 +4,12 @@ Created on Wed Mar 25 19:00:06 2026
 
 @author: loren
 
-Crea un boxplot della distribuzione di una colonna (es. rho_1_max)
+Crea un boxplot della distribuzione di colonne selezionate
 partendo da un file CSV.
 
 Configurazione richiesta all'inizio dello script:
 - CSV_PATH: percorso del file .csv di input
-- COLUMN_NAME: nome della colonna da plottare
+- COLUMN_NAMES: nomi delle colonne da plottare
 """
 
 from pathlib import Path
@@ -19,20 +19,17 @@ import numpy as np
 import pandas as pd
 
 CSV_PATH = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\rhomax_annual.csv")
-COLUMN_NAME = "rho_1_max"
-OUTPUT_PLOT_PATH = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\boxplot_rho_1_max.png")
+COLUMN_NAMES = ("rho_1_max", "F_lambda", "F_alpha")
+OUTPUT_PLOT_PATH = Path(r"C:\Users\loren\Desktop\Tesi_magi\codes\model_out\argen\model_2_final\spacing\branch_1000\boxplot_factors.png")
 
 # Stile grafico
-FIGSIZE = (6, 6)
-BOX_STYLE = {
-    "facecolor": "#1f77b4",
-    "edgecolor": "#000000",
-    "linewidth": 1.2,
-}
+FIGSIZE = (7.5, 6)
+BOX_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c"]  # blu, arancione, verde
 COMMON_LINE_STYLE = {"color": "#000000", "linewidth": 1.2}
 MEDIAN_STYLE = {"color": "#000000", "linewidth": 1.6}
 BOX_WIDTH = 0.50
 CAP_WIDTH = 0.30
+X_TICK_LABELS = [r"$\rho_{\max}$", r"$F_{\lambda}$", r"$F_{\alpha}$"]
 
 def load_numeric_series(csv_path: str | Path, column_name: str) -> pd.Series:
     df = pd.read_csv(csv_path)
@@ -53,18 +50,17 @@ def load_numeric_series(csv_path: str | Path, column_name: str) -> pd.Series:
     return series
 
 
-def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Path) -> Path:
+def create_boxplot(series_list: list[pd.Series], *, output_path: str | Path) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.boxplot(
-        [series.tolist()],
+    boxplot = ax.boxplot(
+        [series.tolist() for series in series_list],
         whis=(0, 100),
         showmeans=False,
         showfliers=False,
         patch_artist=True,
-        boxprops=BOX_STYLE,
         whiskerprops=COMMON_LINE_STYLE,
         capprops=COMMON_LINE_STYLE,
         medianprops=MEDIAN_STYLE,
@@ -72,21 +68,27 @@ def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Pa
         capwidths=CAP_WIDTH,
     )
 
-    ax.set_xticks([])
-    ax.set_ylabel(r"$\rho_{\max}$", fontsize = 14)
+    for patch, color in zip(boxplot["boxes"], BOX_COLORS):
+        patch.set_facecolor(color)
+        patch.set_edgecolor("#000000")
+        patch.set_linewidth(1.2)
+
+    ax.set_xticks(range(1, len(series_list) + 1))
+    ax.set_xticklabels(X_TICK_LABELS, fontsize=13)
     ax.grid(axis="y", alpha=0.25)
     ax.yaxis.set_label_position("left")
     ax.yaxis.tick_left()
     
+    all_values = np.concatenate([series.to_numpy() for series in series_list])
     percentiles = [5, 10, 15, 20, 25, 50, 75, 95]
-    percentile_positions = np.percentile(series, percentiles)
+    percentile_positions = np.percentile(all_values, percentiles)
 
     percentile_axis = ax.secondary_yaxis("right", functions=(lambda y: y, lambda y: y))
     percentile_axis.yaxis.set_label_position("right")
     percentile_axis.yaxis.tick_right()
     percentile_axis.set_yticks(percentile_positions)
     percentile_axis.set_yticklabels([str(p) for p in percentiles])
-    percentile_axis.set_ylabel("Percentile (%)", fontsize = 11)
+    percentile_axis.set_ylabel("Percentile (%)", fontsize=11)
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=300)
@@ -96,13 +98,16 @@ def create_boxplot(series: pd.Series, *, column_name: str, output_path: str | Pa
 
 
 def main() -> None:
-    series = load_numeric_series(CSV_PATH, COLUMN_NAME)
-    saved_plot = create_boxplot(series, column_name=COLUMN_NAME, output_path=OUTPUT_PLOT_PATH)
+    series_list = [load_numeric_series(CSV_PATH, name) for name in COLUMN_NAMES]
+    saved_plot = create_boxplot(series_list, output_path=OUTPUT_PLOT_PATH)
 
     print("Boxplot creato con successo:")
     print(saved_plot)
-    print(f"Numero valori usati: {len(series)}")
+    for name, series in zip(COLUMN_NAMES, series_list):
+        print(f"Numero valori usati per {name}: {len(series)}")
 
 
 if __name__ == "__main__":
     main()
+
+
