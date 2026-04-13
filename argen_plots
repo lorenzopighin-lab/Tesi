@@ -57,7 +57,6 @@ MAX_INTERMEDIATE_PIXELS = 4
 # Distanza tra i pixel intermedi (solo modalità "spacing").
 INTERMEDIATE_SPACING_METERS = 1500.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
-MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
 TARGET_STATION_ID = ""
 REFERENCE_RHO_STATIONS = [   #per i plot della rete riferiti a singole stazioni
     "",
@@ -107,7 +106,6 @@ PLOT_PRECIPITATION_DATE = None  # es. "2015-10-10" per plottare le piogge sul ba
 PLOT_PRECIPITATION_RANGE = ("2015-10-01", "2015-10-15")  # es. ("2015-10-01", "2015-10-05") per plottare più giorni consecutivi
 PLOT_RHO_PIXELS = True
 PROMPT_RHO_CSV = True
-PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
 rho_max_inf_values = [0.90, 0.88, 0.85]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
@@ -2108,19 +2106,6 @@ def _add_selected_coord(rc, *, require_accumulation: bool = True):
         return False
 
     key = (r, c)
-    try:
-        exclusion_radius = float(MAIN_SEED_EXCLUSION_RADIUS_METERS)
-    except (TypeError, ValueError):
-        exclusion_radius = 0.0
-    if exclusion_radius > 0 and np.isfinite(exclusion_radius):
-        main_seed_rc = (int(main_seed_row), int(main_seed_col))
-        if key != main_seed_rc:
-            dr_m = (r - main_seed_rc[0]) * cell_size_y
-            dc_m = (c - main_seed_rc[1]) * cell_size_x
-            distance = math.hypot(dr_m, dc_m)
-            if distance <= exclusion_radius:
-                return False
-
     if key in selected_coords_set:
         return False
 
@@ -2615,23 +2600,12 @@ def _format_str_or_empty(value):
     return value
 
 pixel_table_rows = []
-main_seed_rc = (int(main_seed_row), int(main_seed_col))
-
-
 
 for idx, point in enumerate(selected_points, start=1):
     rsnap, csnap = point.get("snapped_index", (None, None))
     xsnap, ysnap = point.get("snapped_coord", (None, None))
     station_id = point.get("station_id")
-    distance_m = None
-    if rsnap is not None and csnap is not None:
-        try:
-            dr_m = (int(rsnap) - main_seed_rc[0]) * PIXEL_SIZE_METERS
-            dc_m = (int(csnap) - main_seed_rc[1]) * PIXEL_SIZE_METERS
-            distance_m = math.hypot(dr_m, dc_m)
-        except (TypeError, ValueError):
-            distance_m = None
-            
+              
     pixel_table_rows.append(
         {
             "id": idx,
@@ -2640,12 +2614,11 @@ for idx, point in enumerate(selected_points, start=1):
             "col": csnap,
             "x": xsnap,
             "y": ysnap,
-            "distance_m": distance_m,
         }
     )
 
 if pixel_table_rows:
-    header = ("ID", "Station_ID", "Row", "Col", "X", "Y", "Distance_m")
+    header = ("ID", "Station_ID", "Row", "Col", "X", "Y")
     col_widths = [max(len(h), 5) for h in header]
     
     def _row_values(row):
@@ -2656,8 +2629,7 @@ if pixel_table_rows:
             _format_str_or_empty(row.get("station_id")),
             _format_float_or_empty(row["x"]),
             _format_float_or_empty(row["y"]),
-            _format_float_or_empty(row.get("distance_m")),
-        )
+                 )
 
     for row in pixel_table_rows:
         values = _row_values(row)
@@ -2685,7 +2657,6 @@ if pixel_table_rows:
                     "col",
                     "x",
                     "y",
-                    "distance_m",
                 ])
                 for row in pixel_table_rows:
                     writer.writerow(
@@ -2696,8 +2667,7 @@ if pixel_table_rows:
                             row["col"],
                             row["x"],
                             row["y"],
-                            row.get("distance_m"),
-                        ]
+                            ]
                     )
             print(
                 f"Tabella pixel salvata in {PIXEL_TABLE_OUTPUT.resolve()}"
