@@ -28,21 +28,17 @@ from Model_f import run_model
 from max_rho_1 import run as run_max_rho_1
 
 
-# --- Configurazione generale ---
-
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
-POUR_POINT = array.array('f', [9.593806,	47.625856])
-SNAP_ACCUMULATION_THRESHOLD = 8000
-BRANCH_ACCUMULATION_THRESHOLD = 1000
-STATION_SNAP_ACCUMULATION_THRESHOLD = 15000
-MIN_ACCUMULATION_KM2 = 0.8
+POUR_POINT = array.array('f', [9.593806, 47.625856])  #coordinate sezione di chiusura
+SNAP_ACCUMULATION_THRESHOLD = 8000         #accumulation per snappare sezione di chiusura (celle) 
+BRANCH_ACCUMULATION_THRESHOLD = 1000     #accumulation per identificazione della rete (celle)
+STATION_SNAP_ACCUMULATION_THRESHOLD = 6000  #accumulation per snappare le stazioni sulla rete
+MIN_ACCUMULATION = 800   #test section non si identificano sotto alla MIN_ACCUMULATION
 
 
 # --- Parametri dimensionali ---
-# Il DEM è espresso in coordinate geografiche ma sappiamo che le celle
-# rappresentano quadrati da 30 m di lato.  Per le operazioni che richiedono
-# distanze o superfici in metri utilizziamo quindi questo fattore di
-# conversione esplicito.
+# Il DEM è espresso in coordinate geografiche ma si conosce la risoluzione del DEM
+# si impostano le celle come quadrati da 30 m di lato:
 PIXEL_SIZE_METERS = 30.0
 PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 
@@ -101,10 +97,12 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf = 0.912183492  #si plottano i valori <inf e >sup
-rho_max_sup = 0.912183492
-rho_mean_inf = 0.850003945
-rho_mean_sup = 0.850003945
+rho_max_inf = 0.869991645
+  #si plottano i valori <inf e >sup
+rho_max_sup = 0.869991645
+
+rho_mean_inf = 0.832074078
+rho_mean_sup = 0.832074078
 
 def _format_scalebar_label(length_meters: float) -> str:
     if length_meters >= 1000:
@@ -1151,7 +1149,7 @@ H, W = acc_view.shape
 cell_area_m2 = PIXEL_AREA_M2
 cell_size_x = PIXEL_SIZE_METERS
 cell_size_y = PIXEL_SIZE_METERS
-thr_cells = math.ceil((MIN_ACCUMULATION_KM2 * 1e6) / cell_area_m2)
+thr_cells = MIN_ACCUMULATION
 
 # Seleziona i pixel con accumulo sufficiente per essere considerati candidati.
 mask_acc = acc_view >= thr_cells
@@ -2358,7 +2356,7 @@ def plot_selected_pixel_catchment(
     plt.show()
 
     
-catchment_selection = "catchment_DE110220"  # può essere indice (es. 1) o ID (es. "catchment_001")
+catchment_selection = "catchment_1173"  # può essere indice (es. 1) o ID (es. "catchment_001")
 catchment_id_to_plot = catchment_selection if catchment_ids else None
 
 if catchment_id_to_plot is not None:
@@ -2375,7 +2373,7 @@ if catchment_id_to_plot is not None:
 else:
     print("Nessun catchment valido da plottare.")
     
-operator_pixel_selection = "catchment_DE110220"  # pixel scelto dall'operatore (indice o ID)
+operator_pixel_selection = "catchment_1173"  # pixel scelto dall'operatore (indice o ID)
 operator_pixel_id = operator_pixel_selection if catchment_ids else None
 
 if operator_pixel_id is not None:
