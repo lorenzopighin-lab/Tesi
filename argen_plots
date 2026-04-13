@@ -33,18 +33,16 @@ from max_rho_1 import run as run_max_rho_1
 # --- Configurazione generale ---
 
 dem_path  = "C:/Users/loren/Desktop/Tesi_magi/codes/data/DE111140.tif"
-POUR_POINT = array.array('f', [9.593806,	47.625856])
-SNAP_ACCUMULATION_THRESHOLD = 20000
-BRANCH_ACCUMULATION_THRESHOLD = 1000
-STATION_SNAP_ACCUMULATION_THRESHOLD = 15000
-MIN_ACCUMULATION_KM2 = 0.8
-PLOT_FRAME_MARGIN_FRACTION = 0.03
+POUR_POINT = array.array('f', [9.593806,	47.625856])  #coordinate sezione di chiusura
+SNAP_ACCUMULATION_THRESHOLD = 20000   #accumulation per snappare sezione di chiusura (celle) 
+BRANCH_ACCUMULATION_THRESHOLD = 1000  #accumulation per identificazione della rete (celle)
+STATION_SNAP_ACCUMULATION_THRESHOLD = 15000  #accumulation per snappare le stazioni sulla rete
+MIN_ACCUMULATION_KM2 = 0.8   #test section non si identificano sotto alla MIN_ACCUMULATION
+
 
 # --- Parametri dimensionali ---
-# Il DEM è espresso in coordinate geografiche ma sappiamo che le celle
-# rappresentano quadrati da 30 m di lato.  Per le operazioni che richiedono
-# distanze o superfici in metri utilizziamo quindi questo fattore di
-# conversione esplicito.
+# Il DEM è espresso in coordinate geografiche ma si conosce la risoluzione del DEM
+# si impostano le celle come quadrati da 30 m di lato:
 PIXEL_SIZE_METERS = 30.0
 PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 
@@ -67,32 +65,36 @@ REFERENCE_RHO_STATIONS = [   #per i plot della rete riferiti a singole stazioni
     "",
 ]
 
-# --- Esportazione tabella pixel selezionati ---
+# Path tabella pixel selezionati con coordinate
 PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/selected_pixels_table.csv")
 
 # --- Configurazione piogge medie per catchment ---
-# Stazioni attuali usate come sezioni di chiusura.
+# Stazioni di misura di portata esistenti: il .csv ha colonne: station_id, lon, lat
 STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/gauge_coord_DE111140.csv")
-# Inserire qui il path alla cartella con i file .txt delle precipitazioni (uno per stazione).
+# path alla cartella con i file .txt delle precipitazioni (uno per stazione).
 PRECIP_DATA_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/precip_DE111140")
-# Inserire qui il path al CSV con le colonne ID, Lon, Lat delle stazioni di precipitazione.
+# pluviometri presenti: il .csv ha colonne: ID, Lon, Lat delle stazioni di precipitazione
 PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/pluv/pluv_DE111140.csv")
-PRECIP_DATE_START = "2000-01-01"
+PRECIP_DATE_START = "2000-01-01"  #periodo da includere durante il kriging
 PRECIP_DATE_END = "2020-12-31"
-PRECIP_BUFFER_METERS = 20000.0
+PRECIP_BUFFER_METERS = 20000.0   #raggio oltre il limite del catchment, vengono usati tutti i pluviometri entro questo raggio
 PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
-KRIGING_PRECIPITATION_THRESHOLD = 0.0  # nessuna soglia durante l'interpolazione
-MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
+KRIGING_PRECIPITATION_THRESHOLD = 0.0  # attualmente nessuna soglia durante l'interpolazione
+MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0]  # soglie da applicare quando si lancia Model_1
+#path ai .csv con le serie di precipitazioni estratte per le stazioni e test section
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_pixel_precipitation_table.csv")
 COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_catchment_precipitation_table.csv")
+#cartella dove inserire i .csv output della applicazione del modello. accoppia ogni test section con ogni stazione
+#compaiono tutti gli elementi lamda e alpha necessari al calcolo
+#un csv diverso per ogni applicazione con diverso threshold
 MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000")
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = False  # Imposta a False per saltare il calcolo delle precipitazioni
+RUN_KRIGING = False  # True - Flase Imposta a False per saltare il calcolo delle precipitazioni e utilizzare i risultati già ottenuti
 USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
@@ -108,11 +110,10 @@ PROMPT_RHO_CSV = True
 PROMPT_RHO_COLOR_SCALE = False
 RHO_COLOR_SCALE_MIN = 0.7
 RHO_COLOR_SCALE_MAX = 1.0
-rho_max_inf_values = [0.850, 0.866]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
-rho_max_sup = 0.941
+rho_max_inf_values = [0.90, 0.88, 0.85]  # lista di soglie inferiori per plottare i valori rho_max < rho_max_inf
+rho_max_sup_values = [0.98, 0.9666, 0.95]  # lista di soglie superiori per plottare i valori rho_max > rho_max_sup
+PLOT_FRAME_MARGIN_FRACTION = 0.03 
 
-rho_mean_inf = 0.832074078
-rho_mean_sup = 0.832074078
 
 def _normalize_threshold_list(values, *, name: str) -> list[float]:
     """Restituisce una lista ordinata di soglie float a partire da float, stringa o iterabile."""
@@ -927,11 +928,12 @@ def plot_rho_pixels_on_network(
     plt.show()
     
     rho_max_inf_list = _normalize_threshold_list(rho_max_inf_values, name="rho_max_inf_values")
-    rho_max_upper = merged[merged["rho_1_max"] > rho_max_sup]
+    rho_max_sup_list = _normalize_threshold_list(rho_max_sup_values, name="rho_max_sup_values")
+
 
     threshold_plots = [
         *[(merged[merged["rho_1_max"] < threshold], threshold, "<") for threshold in rho_max_inf_list],
-        (rho_max_upper, rho_max_sup, ">"),
+        *[(merged[merged["rho_1_max"] > threshold], threshold, ">") for threshold in rho_max_sup_list],
     ]
 
     for filtered_df, threshold, operator in threshold_plots:
@@ -1048,8 +1050,8 @@ def plot_rho_pixels_on_network(
         _plot_single_series(merged, column=column, label=label)
 
     threshold_filters = [
-        ("rho_1_max", label_rho_max, ">", rho_max_sup, f" > {rho_max_sup}"),
         *[("rho_1_max", label_rho_max, "<", threshold, f" < {threshold}") for threshold in rho_max_inf_list],
+        *[("rho_1_max", label_rho_max, ">", threshold, f" > {threshold}") for threshold in rho_max_sup_list],
     ]
 
     for column, label, operator, threshold, title_suffix in threshold_filters:
