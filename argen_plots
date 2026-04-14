@@ -58,8 +58,8 @@ MAX_INTERMEDIATE_PIXELS = 4
 INTERMEDIATE_SPACING_METERS = 1500.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
 TARGET_STATION_ID = ""
-REFERENCE_RHO_STATIONS = [   #per i plot della rete riferiti a singole stazioni
-    "",
+REFERENCE_RHO_STATIONS = [   #insserire ID stazioni per i plot di rho sulla rete riferiti a singole stazioni
+    "DE111140",
     "",
     "",
 ]
@@ -81,7 +81,7 @@ PRECIP_MIN_STATIONS = 2
 PRECIP_MAX_STATIONS = 30
 AGGREGATION_FACTOR = 3  # raggruppa i pixel del DEM in blocchi quadrati da n x n
 KRIGING_PRECIPITATION_THRESHOLD = 0.0  # attualmente nessuna soglia durante l'interpolazione
-MODEL_PRECIPITATION_THRESHOLDS = [0.0, 1.0, 2.0, 3.0]  # soglie da applicare quando si lancia Model_1
+MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia Model_1
 #path ai .csv con le serie di precipitazioni estratte per le stazioni e test section
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_pixel_precipitation_table.csv")
@@ -93,7 +93,7 @@ MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/
 
 
 # --- Opzioni Kriging ---
-RUN_KRIGING = False  # True - Flase Imposta a False per saltare il calcolo delle precipitazioni e utilizzare i risultati già ottenuti
+RUN_KRIGING = True  # True - Flase Imposta a False per saltare il calcolo delle precipitazioni e utilizzare i risultati già ottenuti
 USE_EXISTING_PRECIP_TABLES = True  # Usa serie già estratte quando il kriging è disabilitato
 EXISTING_COMBINED_PRECIP_TABLE = COMBINED_PRECIPITATION_OUTPUT
 EXISTING_STATION_PRECIP_TABLE = STATION_PRECIPITATION_OUTPUT
