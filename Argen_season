@@ -74,8 +74,8 @@ PRECIP_STATION_META_PATH = Path("C:/Users/loren/Desktop/Tesi_magi/codes/data/plu
 PRECIP_DATE_START = "2000-01-01"
 PRECIP_DATE_END = "2020-12-31"
 # Periodo stagionale (DD/MM) da applicare ogni anno della simulazione.
-SEASONAL_PERIOD_START_DDMM = "01/06"
-SEASONAL_PERIOD_END_DDMM = "31/08"
+SEASONAL_PERIOD_START_DDMM = "01/12"
+SEASONAL_PERIOD_END_DDMM = "28/02"
 PROMPT_SEASONAL_PERIOD = False
 PRECIP_BUFFER_METERS = 20000.0
 PRECIP_MIN_STATIONS = 2
@@ -86,7 +86,7 @@ MODEL_PRECIPITATION_THRESHOLDS = [3.0]  # soglie da applicare quando si lancia M
 STATION_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_station_precipitation_table.csv")
 PIXEL_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_pixel_precipitation_table.csv")
 COMBINED_PRECIPITATION_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/kriging_out/argen_1000/argen_catchment_precipitation_table.csv")
-MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/summer")
+MODEL_OUTPUT_DIR = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/winter")
 STATION_RHO_OUTPUT_DIR = MODEL_OUTPUT_DIR / "station_rho"
 SEASONAL_FILTERED_INPUT_DIR = MODEL_OUTPUT_DIR / "seasonal_inputs"
 
@@ -903,8 +903,8 @@ def plot_rho_pixels_on_network(
         ax.set_xlim(grid.bbox[0], grid.bbox[2])
         ax.set_ylim(grid.bbox[1], grid.bbox[3])
         ax.set_aspect("equal")
-        diff_norm = colors.TwoSlopeNorm(vmin=-0.05, vcenter=0.0, vmax=0.05)
-        diff_cmap = plt.cm.brg
+        diff_norm = colors.TwoSlopeNorm(vmin=-0.066, vcenter=0.0, vmax=0.066)
+        diff_cmap = plt.cm.rainbow #rainbow  cividis
         rho_diff_network = _plot_rho_network_colored(
             ax,
             column="rho_max_difference",
