@@ -43,12 +43,18 @@ PIXEL_SIZE_METERS = 30.0
 PIXEL_AREA_M2 = PIXEL_SIZE_METERS ** 2
 
 # --- Parametri selezione pixel ---
-# I pixel intermedi vengono posizionati ogni INTERMEDIATE_SPACING_METERS lungo il ramo.
+# "equidistant": distribuisce i pixel intermedi in modo equidistante lungo il ramo
+# "spacing": posiziona i pixel intermedi ogni INTERMEDIATE_SPACING_METERS lungo il ramo
 # Sui rami più corti di MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS non vengono
 # selezionati pixel intermedi.
+PIXEL_PLACEMENT_MODE = "spacing"
+# Numero massimo di pixel intermedi (solo modalità "equidistant").
+MAX_INTERMEDIATE_PIXELS = 4
+# Distanza tra i pixel intermedi (solo modalità "spacing").
 INTERMEDIATE_SPACING_METERS = 1500.0
 MIN_BRANCH_LENGTH_FOR_INTERMEDIATE_METERS = 1000
 MAIN_SEED_EXCLUSION_RADIUS_METERS = 1000
+TARGET_STATION_ID = ""
 
 # --- Esportazione tabella pixel selezionati ---
 PIXEL_TABLE_OUTPUT = Path("C:/Users/loren/Desktop/Tesi_magi/codes/model_out/argen/model_2_final/spacing/branch_1000/selected_pixels_table.csv")
@@ -1268,13 +1274,32 @@ for branch_id in unique_branch_ids:
     branch_selected = []
     used_indices = set()
     
-    # Nel metodo spacing si parte sempre dal pixel di valle.
-    downstream_coord = branch_coords[-1]
-    if _add_selected_coord(downstream_coord, require_accumulation=False):
-        branch_selected.append(downstream_coord)
-        idx = filtered_index_by_coord.get(downstream_coord)
-        if idx is not None:
-            used_indices.add(idx)
+    mode = (PIXEL_PLACEMENT_MODE or "").strip().lower()
+
+    if mode == "spacing":
+        # Nel metodo spacing si parte dal pixel di valle.
+        downstream_coord = branch_coords[-1]
+        if _add_selected_coord(downstream_coord, require_accumulation=False):
+            branch_selected.append(downstream_coord)
+            idx = filtered_index_by_coord.get(downstream_coord)
+            if idx is not None:
+                used_indices.add(idx)
+    else:
+        # Seleziona sempre l'estremo a monte del ramo.
+        upstream_coord = branch_coords[0]
+        if _add_selected_coord(upstream_coord, require_accumulation=False):
+            branch_selected.append(upstream_coord)
+            idx = filtered_index_by_coord.get(upstream_coord)
+            if idx is not None:
+                used_indices.add(idx)
+
+        # Seleziona sempre l'estremo a valle del ramo.
+        downstream_coord = branch_coords[-1]
+        if _add_selected_coord(downstream_coord, require_accumulation=False):
+            branch_selected.append(downstream_coord)
+            idx = filtered_index_by_coord.get(downstream_coord)
+            if idx is not None:
+                used_indices.add(idx)
 
     # Numero massimo di slot disponibili per eventuali punti intermedi.
     available_slots = max(0, n_coords - 2)
@@ -1285,7 +1310,7 @@ for branch_id in unique_branch_ids:
 
         if not allow_intermediate_selection:
             target_distances = []
-        else:
+        elif mode == "spacing":
             try:
                 spacing_m = float(INTERMEDIATE_SPACING_METERS)
             except (TypeError, ValueError):
@@ -1295,35 +1320,64 @@ for branch_id in unique_branch_ids:
                 
                 n_targets = min(n_targets, available_slots)
                 target_distances = [spacing_m * i for i in range(1, n_targets + 1)]
+        else:
+            max_intermediate = None
+            if MAX_INTERMEDIATE_PIXELS is not None:
+                try:
+                    max_intermediate = int(MAX_INTERMEDIATE_PIXELS)
+                except (TypeError, ValueError):
+                    max_intermediate = None
+            if max_intermediate is not None:
+                n_intermediate = min(max_intermediate, available_slots)
+            else:
+                n_intermediate = max(1, math.ceil(n_coords / 30))
+                n_intermediate = min(n_intermediate, available_slots)
+
+            if n_intermediate > 0 and cumulative_distances[-1] > 0:
+                target_distances = np.linspace(
+                    0, cumulative_distances[-1], n_intermediate + 2
+                )[1:-1]
 
         for target_distance in target_distances:
-            distance_from_downstream = [
-                branch_length - cumulative_distances[i] for i in range(n_coords)
-            ]
-            available_indices = [
-                i
-                for i in range(0, n_coords - 1)
-                if i not in used_indices and distance_from_downstream[i] >= target_distance
-            ]
-            if not available_indices:
-                break
-            closest_idx = min(
-                available_indices,
-                key=lambda i: abs(distance_from_downstream[i] - target_distance),
-            )
+            if mode == "spacing":
+                distance_from_downstream = [
+                    branch_length - cumulative_distances[i] for i in range(n_coords)
+                ]
+                available_indices = [
+                    i
+                    for i in range(0, n_coords - 1)
+                    if i not in used_indices and distance_from_downstream[i] >= target_distance
+                ]
+                if not available_indices:
+                    break
+                closest_idx = min(
+                    available_indices,
+                    key=lambda i: abs(distance_from_downstream[i] - target_distance),
+                )
+            else:
+                available_indices = [
+                    i for i in range(1, n_coords - 1) if i not in used_indices
+                ]
+                if not available_indices:
+                    break
+                closest_idx = min(
+                    available_indices,
+                    key=lambda i: abs(cumulative_distances[i] - target_distance),
+                )
 
             coord = filtered_coords[closest_idx]
             if _add_selected_coord(coord):
                 branch_selected.append(coord)
             used_indices.add(closest_idx)
         
-    # Quando si esaurisce il ramo seleziona l'ultimo pixel a monte.
-    upstream_coord = branch_coords[0]
-    if _add_selected_coord(upstream_coord, require_accumulation=False):
-        branch_selected.append(upstream_coord)
-        idx = filtered_index_by_coord.get(upstream_coord)
-        if idx is not None:
-            used_indices.add(idx)
+    if mode == "spacing":
+        # Quando si esaurisce il ramo seleziona l'ultimo pixel a monte.
+        upstream_coord = branch_coords[0]
+        if _add_selected_coord(upstream_coord, require_accumulation=False):
+            branch_selected.append(upstream_coord)
+            idx = filtered_index_by_coord.get(upstream_coord)
+            if idx is not None:
+                used_indices.add(idx)
 
     if branch_selected:
         branch_selected.sort(key=lambda rc: acc_view[rc])
